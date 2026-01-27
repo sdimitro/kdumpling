@@ -29,6 +29,8 @@ keywords = ["kdump", "vmcore", "linux", "crash", "elf", "coredump"]
 dev = [
     "pytest>=7.0",
     "pyelftools>=0.29",
+    "mypy>=1.0",
+    "ruff>=0.1.0",
 ]
 
 [project.urls]
@@ -37,3 +39,44 @@ Repository = "https://github.com/sdimitro/kdumpling"
 
 [tool.setuptools.packages.find]
 include = ["kdumpling*"]
+
+[tool.setuptools.package-data]
+kdumpling = ["py.typed"]
+
+[tool.ruff]
+target-version = "py38"
+line-length = 88
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # pyflakes
+    "I",      # isort
+    "B",      # flake8-bugbear
+    "UP",     # pyupgrade
+]
+ignore = [
+    "E501",   # line too long (handled by formatter)
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["kdumpling"]
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+strict_optional = true
+
+[[tool.mypy.overrides]]
+module = "elftools.*"
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]

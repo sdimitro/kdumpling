@@ -2,42 +2,45 @@
 KdumpBuilder - Main class for building Linux kdump vmcore files.
 """
 
-from dataclasses import dataclass, field
-from typing import BinaryIO, Union
+from __future__ import annotations
+
 import os
+from dataclasses import dataclass, field
+from typing import BinaryIO
 
 from .elf import (
     ARCHITECTURES,
     ELF64_EHDR_SIZE,
     ELF64_PHDR_SIZE,
-    PhdrType,
+    ArchInfo,
     PhdrFlags,
+    PhdrType,
     pack_elf64_ehdr,
     pack_elf64_phdr,
     pack_elf_note,
 )
 
-
 # VMCOREINFO note type used by Linux kernel
 # This is a custom note type (not standard ELF)
-VMCOREINFO_NOTE_NAME = b'VMCOREINFO'
+VMCOREINFO_NOTE_NAME = b"VMCOREINFO"
 VMCOREINFO_NOTE_TYPE = 0
 
 
 @dataclass
 class MemorySegment:
     """Represents a memory segment to be included in the dump."""
+
     phys_addr: int
-    data: Union[bytes, str, BinaryIO]
+    data: bytes | str | BinaryIO
     size: int = 0
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if isinstance(self.data, bytes):
             self.size = len(self.data)
         elif isinstance(self.data, str):
             # It's a file path
             self.size = os.path.getsize(self.data)
-        elif hasattr(self.data, 'seek') and hasattr(self.data, 'tell'):
+        elif hasattr(self.data, "seek") and hasattr(self.data, "tell"):
             # It's a file-like object, get size
             current_pos = self.data.tell()
             self.data.seek(0, 2)  # Seek to end
@@ -49,7 +52,7 @@ class MemorySegment:
         if isinstance(self.data, bytes):
             return self.data
         elif isinstance(self.data, str):
-            with open(self.data, 'rb') as f:
+            with open(self.data, "rb") as f:
                 return f.read()
         else:
             # File-like object
@@ -59,12 +62,12 @@ class MemorySegment:
             self.data.seek(current_pos)
             return data
 
-    def write_to(self, output: BinaryIO):
+    def write_to(self, output: BinaryIO) -> None:
         """Stream the segment data to an output file."""
         if isinstance(self.data, bytes):
             output.write(self.data)
         elif isinstance(self.data, str):
-            with open(self.data, 'rb') as f:
+            with open(self.data, "rb") as f:
                 # Stream in chunks to handle large files
                 while True:
                     chunk = f.read(1024 * 1024)  # 1MB chunks
@@ -100,20 +103,21 @@ class KdumpBuilder:
         builder.add_memory_segment(phys_addr=0x100000, data=memory_bytes)
         builder.write("output.vmcore")
     """
-    arch: str = 'x86_64'
-    _vmcoreinfo: bytes = field(default=b'', init=False)
-    _segments: list = field(default_factory=list, init=False)
 
-    def __post_init__(self):
+    arch: str = "x86_64"
+    _vmcoreinfo: bytes = field(default=b"", init=False)
+    _segments: list[MemorySegment] = field(default_factory=list, init=False)
+    _arch_info: ArchInfo = field(init=False)
+
+    def __post_init__(self) -> None:
         if self.arch not in ARCHITECTURES:
-            supported = ', '.join(sorted(ARCHITECTURES.keys()))
+            supported = ", ".join(sorted(ARCHITECTURES.keys()))
             raise ValueError(
-                f"Unsupported architecture: {self.arch}. "
-                f"Supported: {supported}"
+                f"Unsupported architecture: {self.arch}. Supported: {supported}"
             )
         self._arch_info = ARCHITECTURES[self.arch]
 
-    def set_vmcoreinfo(self, data: Union[str, bytes]) -> 'KdumpBuilder':
+    def set_vmcoreinfo(self, data: str | bytes) -> KdumpBuilder:
         """
         Set the VMCOREINFO metadata string.
 
@@ -127,13 +131,14 @@ class KdumpBuilder:
             self for method chaining
         """
         if isinstance(data, str):
-            self._vmcoreinfo = data.encode('utf-8')
+            self._vmcoreinfo = data.encode("utf-8")
         else:
             self._vmcoreinfo = data
         return self
 
-    def add_memory_segment(self, phys_addr: int,
-                           data: Union[bytes, str, BinaryIO]) -> 'KdumpBuilder':
+    def add_memory_segment(
+        self, phys_addr: int, data: bytes | str | BinaryIO
+    ) -> KdumpBuilder:
         """
         Add a memory segment to the dump.
 
@@ -161,7 +166,7 @@ class KdumpBuilder:
                 self._arch_info.endianness,
                 VMCOREINFO_NOTE_NAME,
                 VMCOREINFO_NOTE_TYPE,
-                self._vmcoreinfo
+                self._vmcoreinfo,
             )
             notes.extend(note)
 
@@ -202,7 +207,7 @@ class KdumpBuilder:
             machine=machine,
             endianness=endianness,
             phdr_count=phdr_count,
-            phdr_offset=phdr_offset
+            phdr_offset=phdr_offset,
         )
 
         # Build program headers
@@ -219,7 +224,7 @@ class KdumpBuilder:
                 p_paddr=0,
                 p_filesz=len(notes_data),
                 p_memsz=len(notes_data),
-                p_align=4
+                p_align=4,
             )
             phdrs.extend(note_phdr)
 
@@ -235,13 +240,13 @@ class KdumpBuilder:
                 p_paddr=segment.phys_addr,
                 p_filesz=segment.size,
                 p_memsz=segment.size,
-                p_align=self._arch_info.page_size
+                p_align=self._arch_info.page_size,
             )
             phdrs.extend(load_phdr)
             current_offset += segment.size
 
         # Write everything to file
-        with open(output_path, 'wb') as f:
+        with open(output_path, "wb") as f:
             # 1. ELF header
             f.write(ehdr)
 

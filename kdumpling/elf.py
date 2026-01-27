@@ -6,9 +6,9 @@ import struct
 from enum import IntEnum
 from typing import NamedTuple
 
-
 # ELF Magic
-ELF_MAGIC = b'\x7fELF'
+ELF_MAGIC = b"\x7fELF"
+
 
 # ELF Class (32-bit vs 64-bit)
 class ElfClass(IntEnum):
@@ -27,6 +27,7 @@ EV_CURRENT = 1
 
 # ELF OS/ABI
 ELFOSABI_NONE = 0
+
 
 # ELF Type
 class ElfType(IntEnum):
@@ -79,6 +80,7 @@ ELF64_PHDR_SIZE = 56
 
 class ArchInfo(NamedTuple):
     """Architecture-specific information."""
+
     machine: ElfMachine
     endianness: ElfData
     page_size: int = 4096
@@ -86,18 +88,19 @@ class ArchInfo(NamedTuple):
 
 # Supported architectures
 ARCHITECTURES = {
-    'x86_64': ArchInfo(ElfMachine.EM_X86_64, ElfData.ELFDATA2LSB),
-    'aarch64': ArchInfo(ElfMachine.EM_AARCH64, ElfData.ELFDATA2LSB),
-    'arm64': ArchInfo(ElfMachine.EM_AARCH64, ElfData.ELFDATA2LSB),  # alias
-    's390x': ArchInfo(ElfMachine.EM_S390, ElfData.ELFDATA2MSB),
-    'ppc64le': ArchInfo(ElfMachine.EM_PPC64, ElfData.ELFDATA2LSB),
-    'ppc64': ArchInfo(ElfMachine.EM_PPC64, ElfData.ELFDATA2MSB),
-    'riscv64': ArchInfo(ElfMachine.EM_RISCV, ElfData.ELFDATA2LSB),
+    "x86_64": ArchInfo(ElfMachine.EM_X86_64, ElfData.ELFDATA2LSB),
+    "aarch64": ArchInfo(ElfMachine.EM_AARCH64, ElfData.ELFDATA2LSB),
+    "arm64": ArchInfo(ElfMachine.EM_AARCH64, ElfData.ELFDATA2LSB),  # alias
+    "s390x": ArchInfo(ElfMachine.EM_S390, ElfData.ELFDATA2MSB),
+    "ppc64le": ArchInfo(ElfMachine.EM_PPC64, ElfData.ELFDATA2LSB),
+    "ppc64": ArchInfo(ElfMachine.EM_PPC64, ElfData.ELFDATA2MSB),
+    "riscv64": ArchInfo(ElfMachine.EM_RISCV, ElfData.ELFDATA2LSB),
 }
 
 
-def pack_elf64_ehdr(machine: ElfMachine, endianness: ElfData,
-                    phdr_count: int, phdr_offset: int) -> bytes:
+def pack_elf64_ehdr(
+    machine: ElfMachine, endianness: ElfData, phdr_count: int, phdr_offset: int
+) -> bytes:
     """
     Pack an ELF64 header for a core dump.
 
@@ -111,7 +114,7 @@ def pack_elf64_ehdr(machine: ElfMachine, endianness: ElfData,
         64 bytes representing the ELF64 header
     """
     # Determine struct format based on endianness
-    fmt_prefix = '<' if endianness == ElfData.ELFDATA2LSB else '>'
+    fmt_prefix = "<" if endianness == ElfData.ELFDATA2LSB else ">"
 
     # e_ident (16 bytes)
     e_ident = bytearray(16)
@@ -126,28 +129,36 @@ def pack_elf64_ehdr(machine: ElfMachine, endianness: ElfData,
     # Format: HHIQQQIHHHHHH
     # H = uint16, I = uint32, Q = uint64
     header_data = struct.pack(
-        f'{fmt_prefix}HHIQQQIHHHHHH',
-        ElfType.ET_CORE,      # e_type (2 bytes)
-        machine,              # e_machine (2 bytes)
-        EV_CURRENT,           # e_version (4 bytes)
-        0,                    # e_entry (8 bytes) - not used for core dumps
-        phdr_offset,          # e_phoff (8 bytes) - program header offset
-        0,                    # e_shoff (8 bytes) - no section headers
-        0,                    # e_flags (4 bytes)
-        ELF64_EHDR_SIZE,      # e_ehsize (2 bytes)
-        ELF64_PHDR_SIZE,      # e_phentsize (2 bytes)
-        phdr_count,           # e_phnum (2 bytes)
-        0,                    # e_shentsize (2 bytes) - no sections
-        0,                    # e_shnum (2 bytes) - no sections
-        0,                    # e_shstrndx (2 bytes) - no section string table
+        f"{fmt_prefix}HHIQQQIHHHHHH",
+        ElfType.ET_CORE,  # e_type (2 bytes)
+        machine,  # e_machine (2 bytes)
+        EV_CURRENT,  # e_version (4 bytes)
+        0,  # e_entry (8 bytes) - not used for core dumps
+        phdr_offset,  # e_phoff (8 bytes) - program header offset
+        0,  # e_shoff (8 bytes) - no section headers
+        0,  # e_flags (4 bytes)
+        ELF64_EHDR_SIZE,  # e_ehsize (2 bytes)
+        ELF64_PHDR_SIZE,  # e_phentsize (2 bytes)
+        phdr_count,  # e_phnum (2 bytes)
+        0,  # e_shentsize (2 bytes) - no sections
+        0,  # e_shnum (2 bytes) - no sections
+        0,  # e_shstrndx (2 bytes) - no section string table
     )
 
     return bytes(e_ident) + header_data
 
 
-def pack_elf64_phdr(endianness: ElfData, p_type: PhdrType, p_flags: int,
-                    p_offset: int, p_vaddr: int, p_paddr: int,
-                    p_filesz: int, p_memsz: int, p_align: int = 0) -> bytes:
+def pack_elf64_phdr(
+    endianness: ElfData,
+    p_type: PhdrType,
+    p_flags: int,
+    p_offset: int,
+    p_vaddr: int,
+    p_paddr: int,
+    p_filesz: int,
+    p_memsz: int,
+    p_align: int = 0,
+) -> bytes:
     """
     Pack an ELF64 program header.
 
@@ -165,24 +176,25 @@ def pack_elf64_phdr(endianness: ElfData, p_type: PhdrType, p_flags: int,
     Returns:
         56 bytes representing the program header
     """
-    fmt_prefix = '<' if endianness == ElfData.ELFDATA2LSB else '>'
+    fmt_prefix = "<" if endianness == ElfData.ELFDATA2LSB else ">"
 
     # ELF64 Phdr format: IIQQQQQQ
     return struct.pack(
-        f'{fmt_prefix}IIQQQQQQ',
-        p_type,    # p_type (4 bytes)
-        p_flags,   # p_flags (4 bytes)
+        f"{fmt_prefix}IIQQQQQQ",
+        p_type,  # p_type (4 bytes)
+        p_flags,  # p_flags (4 bytes)
         p_offset,  # p_offset (8 bytes)
-        p_vaddr,   # p_vaddr (8 bytes)
-        p_paddr,   # p_paddr (8 bytes)
+        p_vaddr,  # p_vaddr (8 bytes)
+        p_paddr,  # p_paddr (8 bytes)
         p_filesz,  # p_filesz (8 bytes)
-        p_memsz,   # p_memsz (8 bytes)
-        p_align,   # p_align (8 bytes)
+        p_memsz,  # p_memsz (8 bytes)
+        p_align,  # p_align (8 bytes)
     )
 
 
-def pack_elf_note(endianness: ElfData, name: bytes, note_type: int,
-                  desc: bytes) -> bytes:
+def pack_elf_note(
+    endianness: ElfData, name: bytes, note_type: int, desc: bytes
+) -> bytes:
     """
     Pack an ELF note entry.
 
@@ -202,20 +214,20 @@ def pack_elf_note(endianness: ElfData, name: bytes, note_type: int,
     Returns:
         The packed note entry
     """
-    fmt_prefix = '<' if endianness == ElfData.ELFDATA2LSB else '>'
+    fmt_prefix = "<" if endianness == ElfData.ELFDATA2LSB else ">"
 
     # Add null terminator to name
-    name_with_null = name + b'\x00'
+    name_with_null = name + b"\x00"
     namesz = len(name_with_null)
     descsz = len(desc)
 
     # Calculate padding to 4-byte alignment
-    def align4(size):
+    def align4(size: int) -> int:
         return (size + 3) & ~3
 
-    name_padded = name_with_null.ljust(align4(namesz), b'\x00')
-    desc_padded = desc.ljust(align4(descsz), b'\x00')
+    name_padded = name_with_null.ljust(align4(namesz), b"\x00")
+    desc_padded = desc.ljust(align4(descsz), b"\x00")
 
-    header = struct.pack(f'{fmt_prefix}III', namesz, descsz, note_type)
+    header = struct.pack(f"{fmt_prefix}III", namesz, descsz, note_type)
 
     return header + name_padded + desc_padded

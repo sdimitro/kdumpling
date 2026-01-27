@@ -1,0 +1,342 @@
+"""
+Tests for KdumpBuilder using pyelftools for validation.
+"""
+
+import io
+import os
+import tempfile
+
+import pytest
+from elftools.elf.elffile import ELFFile
+from elftools.elf.segments import NoteSegment
+
+from kdumpling import KdumpBuilder
+
+
+class TestKdumpBuilder:
+    """Tests for the KdumpBuilder class."""
+
+    def test_create_empty_vmcore(self) -> None:
+        """Test creating a vmcore with no segments (just header)."""
+        builder = KdumpBuilder(arch="x86_64")
+
+        with tempfile.NamedTemporaryFile(suffix=".vmcore", delete=False) as f:
+            output_path = f.name
+
+        try:
+            builder.write(output_path)
+
+            with open(output_path, "rb") as f:
+                elf = ELFFile(f)
+
+                # Verify ELF header
+                assert elf.header["e_type"] == "ET_CORE"
+                assert elf.header["e_machine"] == "EM_X86_64"
+                assert elf.elfclass == 64
+                assert elf.little_endian is True
+        finally:
+            os.unlink(output_path)
+
+    def test_create_vmcore_with_vmcoreinfo(self) -> None:
+        """Test creating a vmcore with vmcoreinfo metadata."""
+        vmcoreinfo = "OSRELEASE=5.14.0-test\nPAGE_SIZE=4096\nSYMBOL(init_task)=ffffffff82413440\n"
+
+        builder = KdumpBuilder(arch="x86_64")
+        builder.set_vmcoreinfo(vmcoreinfo)
+
+        with tempfile.NamedTemporaryFile(suffix=".vmcore", delete=False) as f:
+            output_path = f.name
+
+        try:
+            builder.write(output_path)
+
+            with open(output_path, "rb") as f:
+                elf = ELFFile(f)
+
+                # Find PT_NOTE segment
+                note_segments = [
+                    s for s in elf.iter_segments() if s["p_type"] == "PT_NOTE"
+                ]
+                assert len(note_segments) == 1
+
+                note_segment = note_segments[0]
+                assert isinstance(note_segment, NoteSegment)
+
+                # Iterate through notes and find VMCOREINFO
+                found_vmcoreinfo = False
+                for note in note_segment.iter_notes():
+                    if note["n_name"] == "VMCOREINFO":
+                        found_vmcoreinfo = True
+                        # The descriptor should contain our vmcoreinfo string
+                        desc = note["n_desc"]
+                        if isinstance(desc, bytes):
+                            desc_str = desc.decode("utf-8", errors="ignore")
+                        else:
+                            desc_str = str(desc)
+                        assert "OSRELEASE=5.14.0-test" in desc_str
+                        assert "PAGE_SIZE=4096" in desc_str
+
+                assert found_vmcoreinfo, "VMCOREINFO note not found"
+        finally:
+            os.unlink(output_path)
+
+    def test_create_vmcore_with_memory_segment(self) -> None:
+        """Test creating a vmcore with a memory segment."""
+        test_data = b"\xde\xad\xbe\xef" * 1024  # 4KB of test pattern
+        phys_addr = 0x100000  # 1MB physical address
+
+        builder = KdumpBuilder(arch="x86_64")
+        builder.add_memory_segment(phys_addr=phys_addr, data=test_data)
+
+        with tempfile.NamedTemporaryFile(suffix=".vmcore", delete=False) as f:
+            output_path = f.name
+
+        try:
+            builder.write(output_path)
+
+            with open(output_path, "rb") as f:
+                elf = ELFFile(f)
+
+                # Find PT_LOAD segment
+                load_segments = [
+                    s for s in elf.iter_segments() if s["p_type"] == "PT_LOAD"
+                ]
+                assert len(load_segments) == 1
+
+                load_segment = load_segments[0]
+                assert load_segment["p_paddr"] == phys_addr
+                assert load_segment["p_filesz"] == len(test_data)
+                assert load_segment["p_memsz"] == len(test_data)
+
+                # Verify the actual data
+                segment_data = load_segment.data()
+                assert segment_data == test_data
+        finally:
+            os.unlink(output_path)
+
+    def test_create_vmcore_with_multiple_segments(self) -> None:
+        """Test creating a vmcore with multiple memory segments."""
+        segments_data = [
+            (0x100000, b"\x11" * 4096),  # 1MB
+            (0x200000, b"\x22" * 8192),  # 2MB
+            (0x1000000, b"\x33" * 16384),  # 16MB
+        ]
+
+        builder = KdumpBuilder(arch="x86_64")
+        builder.set_vmcoreinfo("OSRELEASE=test\n")
+
+        for phys_addr, data in segments_data:
+            builder.add_memory_segment(phys_addr=phys_addr, data=data)
+
+        with tempfile.NamedTemporaryFile(suffix=".vmcore", delete=False) as f:
+            output_path = f.name
+
+        try:
+            builder.write(output_path)
+
+            with open(output_path, "rb") as f:
+                elf = ELFFile(f)
+
+                # Should have 1 PT_NOTE + 3 PT_LOAD
+                all_segments = list(elf.iter_segments())
+                note_segments = [s for s in all_segments if s["p_type"] == "PT_NOTE"]
+                load_segments = [s for s in all_segments if s["p_type"] == "PT_LOAD"]
+
+                assert len(note_segments) == 1
+                assert len(load_segments) == 3
+
+                # Verify each load segment
+                for i, load_segment in enumerate(load_segments):
+                    expected_paddr, expected_data = segments_data[i]
+                    assert load_segment["p_paddr"] == expected_paddr
+                    assert load_segment.data() == expected_data
+        finally:
+            os.unlink(output_path)
+
+    def test_fluent_api(self) -> None:
+        """Test that the fluent/chained API works correctly."""
+        with tempfile.NamedTemporaryFile(suffix=".vmcore", delete=False) as f:
+            output_path = f.name
+
+        try:
+            # All methods should return self for chaining
+            (
+                KdumpBuilder(arch="x86_64")
+                .set_vmcoreinfo("TEST=1\n")
+                .add_memory_segment(0x1000, b"\x00" * 100)
+                .add_memory_segment(0x2000, b"\xff" * 100)
+                .write(output_path)
+            )
+
+            # Verify file was created
+            assert os.path.exists(output_path)
+            assert os.path.getsize(output_path) > 0
+        finally:
+            os.unlink(output_path)
+
+    def test_memory_segment_from_file(self) -> None:
+        """Test adding a memory segment from a file path."""
+        test_data = b"\xca\xfe\xba\xbe" * 512
+
+        with tempfile.NamedTemporaryFile(delete=False) as data_file:
+            data_file.write(test_data)
+            data_path = data_file.name
+
+        with tempfile.NamedTemporaryFile(suffix=".vmcore", delete=False) as f:
+            output_path = f.name
+
+        try:
+            builder = KdumpBuilder(arch="x86_64")
+            builder.add_memory_segment(phys_addr=0x100000, data=data_path)
+            builder.write(output_path)
+
+            with open(output_path, "rb") as f:
+                elf = ELFFile(f)
+                load_segments = [
+                    s for s in elf.iter_segments() if s["p_type"] == "PT_LOAD"
+                ]
+                assert len(load_segments) == 1
+                assert load_segments[0].data() == test_data
+        finally:
+            os.unlink(output_path)
+            os.unlink(data_path)
+
+    def test_memory_segment_from_file_object(self) -> None:
+        """Test adding a memory segment from a file-like object."""
+        test_data = b"\xab\xcd\xef\x01" * 256
+
+        with tempfile.NamedTemporaryFile(suffix=".vmcore", delete=False) as f:
+            output_path = f.name
+
+        try:
+            data_io = io.BytesIO(test_data)
+
+            builder = KdumpBuilder(arch="x86_64")
+            builder.add_memory_segment(phys_addr=0x100000, data=data_io)
+            builder.write(output_path)
+
+            with open(output_path, "rb") as f:
+                elf = ELFFile(f)
+                load_segments = [
+                    s for s in elf.iter_segments() if s["p_type"] == "PT_LOAD"
+                ]
+                assert len(load_segments) == 1
+                assert load_segments[0].data() == test_data
+        finally:
+            os.unlink(output_path)
+
+
+class TestArchitectureSupport:
+    """Tests for multi-architecture support."""
+
+    @pytest.mark.parametrize(
+        "arch,expected_machine,little_endian",
+        [
+            ("x86_64", "EM_X86_64", True),
+            ("aarch64", "EM_AARCH64", True),
+            ("arm64", "EM_AARCH64", True),  # alias
+            ("s390x", "EM_S390", False),
+            ("ppc64le", "EM_PPC64", True),
+            ("ppc64", "EM_PPC64", False),
+            ("riscv64", "EM_RISCV", True),
+        ],
+    )
+    def test_architecture(
+        self, arch: str, expected_machine: str, little_endian: bool
+    ) -> None:
+        """Test that different architectures produce correct ELF headers."""
+        builder = KdumpBuilder(arch=arch)
+        builder.set_vmcoreinfo("TEST=1\n")
+        builder.add_memory_segment(0x1000, b"\x00" * 64)
+
+        with tempfile.NamedTemporaryFile(suffix=".vmcore", delete=False) as f:
+            output_path = f.name
+
+        try:
+            builder.write(output_path)
+
+            with open(output_path, "rb") as f:
+                elf = ELFFile(f)
+                assert elf.header["e_type"] == "ET_CORE"
+                assert elf.header["e_machine"] == expected_machine
+                assert elf.little_endian == little_endian
+        finally:
+            os.unlink(output_path)
+
+    def test_unsupported_architecture(self) -> None:
+        """Test that unsupported architectures raise an error."""
+        with pytest.raises(ValueError, match="Unsupported architecture"):
+            KdumpBuilder(arch="mips64")
+
+
+class TestElfStructure:
+    """Tests for ELF structure correctness."""
+
+    def test_elf_header_size(self) -> None:
+        """Test that ELF header is exactly 64 bytes."""
+        builder = KdumpBuilder(arch="x86_64")
+
+        with tempfile.NamedTemporaryFile(suffix=".vmcore", delete=False) as f:
+            output_path = f.name
+
+        try:
+            builder.write(output_path)
+
+            with open(output_path, "rb") as f:
+                # Read just the e_ehsize field at offset 52
+                f.seek(52)
+                import struct
+
+                e_ehsize = struct.unpack("<H", f.read(2))[0]
+                assert e_ehsize == 64
+        finally:
+            os.unlink(output_path)
+
+    def test_program_header_size(self) -> None:
+        """Test that program headers are exactly 56 bytes."""
+        builder = KdumpBuilder(arch="x86_64")
+        builder.set_vmcoreinfo("TEST=1\n")
+
+        with tempfile.NamedTemporaryFile(suffix=".vmcore", delete=False) as f:
+            output_path = f.name
+
+        try:
+            builder.write(output_path)
+
+            with open(output_path, "rb") as f:
+                # Read e_phentsize field at offset 54
+                f.seek(54)
+                import struct
+
+                e_phentsize = struct.unpack("<H", f.read(2))[0]
+                assert e_phentsize == 56
+        finally:
+            os.unlink(output_path)
+
+    def test_note_alignment(self) -> None:
+        """Test that notes are properly aligned."""
+        # Note entries must be 4-byte aligned
+        vmcoreinfo = "A=1\n"  # Short string to test padding
+
+        builder = KdumpBuilder(arch="x86_64")
+        builder.set_vmcoreinfo(vmcoreinfo)
+
+        with tempfile.NamedTemporaryFile(suffix=".vmcore", delete=False) as f:
+            output_path = f.name
+
+        try:
+            builder.write(output_path)
+
+            with open(output_path, "rb") as f:
+                elf = ELFFile(f)
+                note_segments = [
+                    s for s in elf.iter_segments() if s["p_type"] == "PT_NOTE"
+                ]
+                assert len(note_segments) == 1
+
+                # pyelftools should be able to parse the notes without error
+                # if alignment is correct
+                notes = list(note_segments[0].iter_notes())
+                assert len(notes) == 1
+        finally:
+            os.unlink(output_path)
