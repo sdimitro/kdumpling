@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://github.com/sdimitro/kdumpling/raw/main/assets/logo.png" alt="kdumpling logo" width="400">
+  <img src="https://github.com/sdimitro/kdumpling/raw/develop/assets/logo.png" alt="kdumpling logo" width="400">
 </p>
 
 <h1 align="center">kdumpling</h1>

@@ -1,4 +1,4 @@
-```{image} https://github.com/sdimitro/kdumpling/raw/main/assets/logo.png
+```{image} https://github.com/sdimitro/kdumpling/raw/develop/assets/logo.png
 :alt: kdumpling logo
 :width: 400px
 :align: center
