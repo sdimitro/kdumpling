@@ -102,7 +102,9 @@ class TestCustomNotes:
             )
 
             custom_notes = [
-                n for n in note_segment.iter_notes() if n["n_name"] in ("VENDOR1", "VENDOR2")
+                n
+                for n in note_segment.iter_notes()
+                if n["n_name"] in ("VENDOR1", "VENDOR2")
             ]
 
             assert len(custom_notes) == 3
@@ -112,11 +114,13 @@ class TestCustomNotes:
         builder = KdumpBuilder(arch="x86_64")
         builder.set_vmcoreinfo(VMCOREINFO_X86_64)
         builder.add_memory_segment(phys_addr=0x100000, data=b"\x00" * 4096)
-        builder.add_metadata({
-            "sha256": "abc123def456",
-            "created_at": "2024-01-28T10:30:00Z",
-            "source": "test",
-        })
+        builder.add_metadata(
+            {
+                "sha256": "abc123def456",
+                "created_at": "2024-01-28T10:30:00Z",
+                "source": "test",
+            }
+        )
         builder.write(vmcore_output_path)
 
         # Verify metadata note
@@ -145,10 +149,12 @@ class TestCustomNotes:
         builder = KdumpBuilder(arch="x86_64")
         builder.set_vmcoreinfo(VMCOREINFO_X86_64)
         builder.add_memory_segment(phys_addr=0x100000, data=b"\x00" * 4096)
-        builder.add_annotations({
-            "hostname": "prod-server-01",
-            "panic_reason": "out of memory",
-        })
+        builder.add_annotations(
+            {
+                "hostname": "prod-server-01",
+                "panic_reason": "out of memory",
+            }
+        )
         builder.write(vmcore_output_path)
 
         # Verify annotations note

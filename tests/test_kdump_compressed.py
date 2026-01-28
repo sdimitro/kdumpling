@@ -45,7 +45,9 @@ class TestKdumpCompressedFormat:
         # Verify signature at offset 0
         with open(vmcore_output_path, "rb") as f:
             signature = f.read(8)
-            assert signature == KDUMP_SIGNATURE, f"Expected KDUMP signature, got {signature}"
+            assert signature == KDUMP_SIGNATURE, (
+                f"Expected KDUMP signature, got {signature}"
+            )
 
     def test_write_compressed_header_structure(self, vmcore_output_path: str) -> None:
         """Test that the compressed format has correct header structure."""
@@ -73,7 +75,9 @@ class TestKdumpCompressedFormat:
             # block_size should be 4096
             # Offset: 8 (sig) + 4 (version) + 390 (utsname) + 2 (pad) + 16 (timestamp) + 4 (status)
             block_size_offset = 8 + 4 + 390 + 2 + 16 + 4
-            block_size = struct.unpack("<i", disk_dump_header[block_size_offset:block_size_offset+4])[0]
+            block_size = struct.unpack(
+                "<i", disk_dump_header[block_size_offset : block_size_offset + 4]
+            )[0]
             assert block_size == 4096, f"Invalid block size: {block_size}"
 
     def test_write_compressed_no_compression(self, vmcore_output_path: str) -> None:
@@ -397,7 +401,10 @@ class TestKdumpCompressedLibkdumpfileIntegration:
             # The format should be detected as kdump/diskdump
             file_format = ctx.attr.get("file.format", None)
             if file_format:
-                assert "kdump" in str(file_format).lower() or "diskdump" in str(file_format).lower()
+                assert (
+                    "kdump" in str(file_format).lower()
+                    or "diskdump" in str(file_format).lower()
+                )
         except (AttributeError, KeyError):
             # API might differ between versions
             pass
