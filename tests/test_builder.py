@@ -340,3 +340,157 @@ class TestElfStructure:
                 assert len(notes) == 1
         finally:
             os.unlink(output_path)
+
+
+class TestCpuContext:
+    """Tests for CPU context (NT_PRSTATUS) support."""
+
+    def test_add_single_cpu_context(self) -> None:
+        """Test adding a single CPU context."""
+        builder = KdumpBuilder(arch="x86_64")
+        builder.set_vmcoreinfo("OSRELEASE=test\n")
+        builder.add_cpu_context(
+            cpu_id=0,
+            registers={"RIP": 0xFFFFFFFF81000000, "RSP": 0xFFFF888000000000},
+            pid=1,
+        )
+
+        with tempfile.NamedTemporaryFile(suffix=".vmcore", delete=False) as f:
+            output_path = f.name
+
+        try:
+            builder.write(output_path)
+
+            with open(output_path, "rb") as f:
+                elf = ELFFile(f)
+                note_segments = [
+                    s for s in elf.iter_segments() if s["p_type"] == "PT_NOTE"
+                ]
+                assert len(note_segments) == 1
+
+                notes = list(note_segments[0].iter_notes())
+                # Should have NT_PRSTATUS + VMCOREINFO
+                assert len(notes) == 2
+
+                # Find NT_PRSTATUS note (pyelftools returns string "NT_PRSTATUS")
+                prstatus_notes = [n for n in notes if n["n_type"] == "NT_PRSTATUS"]
+                assert len(prstatus_notes) == 1
+                assert prstatus_notes[0]["n_name"] == "CORE"
+        finally:
+            os.unlink(output_path)
+
+    def test_add_multiple_cpu_contexts(self) -> None:
+        """Test adding multiple CPU contexts (SMP system)."""
+        builder = KdumpBuilder(arch="x86_64")
+        builder.set_vmcoreinfo("OSRELEASE=test\n")
+
+        # Add 4 CPUs
+        for cpu_id in range(4):
+            builder.add_cpu_context(
+                cpu_id=cpu_id,
+                registers={"RIP": 0xFFFFFFFF81000000 + cpu_id * 0x1000},
+                pid=cpu_id + 1,
+            )
+
+        with tempfile.NamedTemporaryFile(suffix=".vmcore", delete=False) as f:
+            output_path = f.name
+
+        try:
+            builder.write(output_path)
+
+            with open(output_path, "rb") as f:
+                elf = ELFFile(f)
+                note_segments = [
+                    s for s in elf.iter_segments() if s["p_type"] == "PT_NOTE"
+                ]
+                assert len(note_segments) == 1
+
+                notes = list(note_segments[0].iter_notes())
+                # Should have 4 NT_PRSTATUS + 1 VMCOREINFO
+                assert len(notes) == 5
+
+                prstatus_notes = [n for n in notes if n["n_type"] == "NT_PRSTATUS"]
+                assert len(prstatus_notes) == 4
+        finally:
+            os.unlink(output_path)
+
+    def test_cpu_context_fluent_api(self) -> None:
+        """Test that add_cpu_context supports fluent API."""
+        with tempfile.NamedTemporaryFile(suffix=".vmcore", delete=False) as f:
+            output_path = f.name
+
+        try:
+            (
+                KdumpBuilder(arch="x86_64")
+                .set_vmcoreinfo("TEST=1\n")
+                .add_cpu_context(cpu_id=0, registers={"RIP": 0x1000})
+                .add_cpu_context(cpu_id=1, registers={"RIP": 0x2000})
+                .add_memory_segment(0x1000, b"\x00" * 100)
+                .write(output_path)
+            )
+
+            assert os.path.exists(output_path)
+            assert os.path.getsize(output_path) > 0
+        finally:
+            os.unlink(output_path)
+
+    def test_cpu_context_register_enum(self) -> None:
+        """Test using register enum for register names."""
+        builder = KdumpBuilder(arch="x86_64")
+
+        # Using string names that match the enum
+        builder.add_cpu_context(
+            cpu_id=0,
+            registers={
+                "RIP": 0xFFFFFFFF81000000,
+                "RSP": 0xFFFF888000000000,
+                "RBP": 0xFFFF888000001000,
+                "RAX": 0x1234,
+                "RBX": 0x5678,
+            },
+        )
+
+        with tempfile.NamedTemporaryFile(suffix=".vmcore", delete=False) as f:
+            output_path = f.name
+
+        try:
+            builder.write(output_path)
+
+            with open(output_path, "rb") as f:
+                elf = ELFFile(f)
+                note_segments = [
+                    s for s in elf.iter_segments() if s["p_type"] == "PT_NOTE"
+                ]
+                notes = list(note_segments[0].iter_notes())
+                prstatus_notes = [n for n in notes if n["n_type"] == "NT_PRSTATUS"]
+                assert len(prstatus_notes) == 1
+        finally:
+            os.unlink(output_path)
+
+    @pytest.mark.parametrize(
+        "arch",
+        ["x86_64", "aarch64", "s390x", "ppc64le", "riscv64"],
+    )
+    def test_cpu_context_architectures(self, arch: str) -> None:
+        """Test CPU context for different architectures."""
+        builder = KdumpBuilder(arch=arch)
+        builder.add_cpu_context(cpu_id=0, registers={}, pid=1)
+
+        with tempfile.NamedTemporaryFile(suffix=".vmcore", delete=False) as f:
+            output_path = f.name
+
+        try:
+            builder.write(output_path)
+
+            with open(output_path, "rb") as f:
+                elf = ELFFile(f)
+                note_segments = [
+                    s for s in elf.iter_segments() if s["p_type"] == "PT_NOTE"
+                ]
+                assert len(note_segments) == 1
+
+                notes = list(note_segments[0].iter_notes())
+                prstatus_notes = [n for n in notes if n["n_type"] == "NT_PRSTATUS"]
+                assert len(prstatus_notes) == 1
+        finally:
+            os.unlink(output_path)

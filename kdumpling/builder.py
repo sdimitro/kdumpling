@@ -8,6 +8,7 @@ import os
 from dataclasses import dataclass, field
 from typing import BinaryIO
 
+from .cpu_context import CpuContext, NoteType, pack_prstatus
 from .elf import (
     ARCHITECTURES,
     ELF64_EHDR_SIZE,
@@ -24,6 +25,9 @@ from .elf import (
 # This is a custom note type (not standard ELF)
 VMCOREINFO_NOTE_NAME = b"VMCOREINFO"
 VMCOREINFO_NOTE_TYPE = 0
+
+# Note name for CPU core dumps
+CORE_NOTE_NAME = b"CORE"
 
 
 @dataclass
@@ -107,6 +111,7 @@ class KdumpBuilder:
     arch: str = "x86_64"
     _vmcoreinfo: bytes = field(default=b"", init=False)
     _segments: list[MemorySegment] = field(default_factory=list, init=False)
+    _cpu_contexts: list[CpuContext] = field(default_factory=list, init=False)
     _arch_info: ArchInfo = field(init=False)
 
     def __post_init__(self) -> None:
@@ -156,9 +161,67 @@ class KdumpBuilder:
         self._segments.append(segment)
         return self
 
+    def add_cpu_context(
+        self,
+        cpu_id: int = 0,
+        registers: dict[str, int] | None = None,
+        pid: int = 0,
+        **kwargs: int,
+    ) -> KdumpBuilder:
+        """
+        Add CPU register state for a processor.
+
+        This creates an NT_PRSTATUS note containing the CPU's register
+        state at the time of the crash. This is useful for tools like
+        crash and gdb to show backtraces.
+
+        Args:
+            cpu_id: CPU identifier (0-indexed)
+            registers: Dictionary mapping register names to values.
+                       For x86_64: RIP, RSP, RBP, RAX, RBX, etc.
+                       For aarch64: X0-X30, SP, PC, PSTATE
+            pid: Process ID associated with this CPU
+            **kwargs: Additional prstatus fields (pr_ppid, pr_pgrp, etc.)
+
+        Returns:
+            self for method chaining
+
+        Example:
+            builder.add_cpu_context(
+                cpu_id=0,
+                registers={'RIP': 0xffffffff81000000, 'RSP': 0xffff888000000000},
+                pid=1
+            )
+        """
+        ctx = CpuContext(
+            cpu_id=cpu_id,
+            pid=pid,
+            registers=registers or {},
+            pr_pid=kwargs.get("pr_pid", pid),
+            pr_ppid=kwargs.get("pr_ppid", 0),
+            pr_pgrp=kwargs.get("pr_pgrp", 0),
+            pr_sid=kwargs.get("pr_sid", 0),
+            si_signo=kwargs.get("si_signo", 0),
+            si_code=kwargs.get("si_code", 0),
+            si_errno=kwargs.get("si_errno", 0),
+        )
+        self._cpu_contexts.append(ctx)
+        return self
+
     def _build_notes_section(self) -> bytes:
-        """Build the PT_NOTE section containing VMCOREINFO."""
+        """Build the PT_NOTE section containing VMCOREINFO and CPU contexts."""
         notes = bytearray()
+
+        # Add NT_PRSTATUS notes for each CPU
+        for ctx in self._cpu_contexts:
+            prstatus_data = pack_prstatus(ctx, self.arch, self._arch_info.endianness)
+            note = pack_elf_note(
+                self._arch_info.endianness,
+                CORE_NOTE_NAME,
+                NoteType.NT_PRSTATUS,
+                prstatus_data,
+            )
+            notes.extend(note)
 
         # Add VMCOREINFO note
         if self._vmcoreinfo:
