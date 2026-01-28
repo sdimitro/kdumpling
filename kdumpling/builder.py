@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
+from enum import IntEnum
 from typing import BinaryIO
 
 from .cpu_context import CpuContext, NoteType, get_prstatus_size, pack_prstatus
@@ -28,6 +29,64 @@ VMCOREINFO_NOTE_TYPE = 0
 
 # Note name for CPU core dumps
 CORE_NOTE_NAME = b"CORE"
+
+# Default vendor name for custom notes
+DEFAULT_NOTE_VENDOR = b"KDUMPLING"
+
+
+class OutputFormat(IntEnum):
+    """Output format for vmcore files."""
+
+    ELF = 0  # Standard ELF64 vmcore (default)
+    KDUMP_COMPRESSED = 1  # Kdump compressed format (makedumpfile compatible)
+
+
+class CompressionType(IntEnum):
+    """Compression algorithms for kdump compressed format."""
+
+    NONE = 0  # No compression (dump level filtering only)
+    ZLIB = 1  # zlib/gzip compression
+    LZO = 2  # LZO compression
+    SNAPPY = 4  # Snappy compression
+    ZSTD = 8  # Zstandard compression
+
+
+class CustomNoteType(IntEnum):
+    """Predefined custom note types for kdumpling metadata.
+
+    Users can also use any integer value for custom types.
+    """
+
+    METADATA = 1  # Hash/signature information
+    ANNOTATIONS = 2  # Custom key-value annotations
+    FILE_INFO = 3  # File description information
+    USER_DEFINED = 256  # Start of user-defined range
+
+
+@dataclass
+class CustomNote:
+    """
+    A custom ELF note to be included in the vmcore.
+
+    Custom notes allow users to embed additional metadata in their
+    vmcore files, such as hashes, timestamps, annotations, or any
+    other application-specific data.
+
+    The note is identified by a (name, type) tuple. Using a unique
+    vendor name (like "KDUMPLING" or your company name) prevents
+    conflicts with other tools.
+
+    Example:
+        note = CustomNote(
+            name=b"KDUMPLING",
+            note_type=CustomNoteType.METADATA,
+            data=b"sha256=abc123..."
+        )
+    """
+
+    name: bytes  # Vendor/namespace identifier (e.g., b"KDUMPLING")
+    note_type: int  # Note type (see CustomNoteType for predefined values)
+    data: bytes  # Note descriptor data
 
 
 def _format_size(size_bytes: int) -> str:
@@ -157,17 +216,28 @@ class KdumpBuilder:
     - A PT_NOTE segment with VMCOREINFO metadata
     - PT_LOAD segments with the actual memory data
 
+    The builder also supports the kdump compressed format (makedumpfile
+    compatible), which provides per-page compression and filtering.
+
     Example usage:
         builder = KdumpBuilder(arch='x86_64')
         builder.set_vmcoreinfo("OSRELEASE=5.14.0\\nPAGE_SIZE=4096\\n")
         builder.add_memory_segment(phys_addr=0x100000, data=memory_bytes)
         builder.write("output.vmcore")
+
+    For custom metadata:
+        builder.add_custom_note(
+            name=b"MYAPP",
+            note_type=1,
+            data=b"version=1.0"
+        )
     """
 
     arch: str = "x86_64"
     _vmcoreinfo: bytes = field(default=b"", init=False)
     _segments: list[MemorySegment] = field(default_factory=list, init=False)
     _cpu_contexts: list[CpuContext] = field(default_factory=list, init=False)
+    _custom_notes: list[CustomNote] = field(default_factory=list, init=False)
     _arch_info: ArchInfo = field(init=False)
 
     def __post_init__(self) -> None:
@@ -264,6 +334,120 @@ class KdumpBuilder:
         self._cpu_contexts.append(ctx)
         return self
 
+    def add_custom_note(
+        self,
+        name: bytes | str,
+        note_type: int,
+        data: bytes | str,
+    ) -> KdumpBuilder:
+        """
+        Add a custom ELF note to the vmcore.
+
+        Custom notes are stored in the PT_NOTE segment alongside
+        standard notes like VMCOREINFO and NT_PRSTATUS. Tools that
+        don't recognize the note type will safely ignore it.
+
+        Args:
+            name: Vendor/namespace identifier (e.g., b"KDUMPLING" or "MYAPP").
+                  Using a unique name prevents conflicts with other tools.
+            note_type: Numeric type identifier. See CustomNoteType for
+                       predefined values, or use any integer.
+            data: The note data. Can be bytes or a string (will be UTF-8 encoded).
+
+        Returns:
+            self for method chaining
+
+        Example:
+            builder.add_custom_note(
+                name=b"KDUMPLING",
+                note_type=CustomNoteType.METADATA,
+                data=b"sha256=abc123..."
+            )
+        """
+        if isinstance(name, str):
+            name = name.encode("utf-8")
+        if isinstance(data, str):
+            data = data.encode("utf-8")
+
+        note = CustomNote(name=name, note_type=note_type, data=data)
+        self._custom_notes.append(note)
+        return self
+
+    def add_metadata(
+        self,
+        data: dict[str, str] | bytes | str,
+        vendor: bytes | str = DEFAULT_NOTE_VENDOR,
+    ) -> KdumpBuilder:
+        """
+        Add metadata to the vmcore.
+
+        This is a convenience method for adding key-value metadata
+        using the METADATA note type.
+
+        Args:
+            data: Metadata to add. Can be:
+                  - dict: Key-value pairs (converted to "key=value\\n" format)
+                  - bytes/str: Raw metadata content
+            vendor: Vendor name for the note (default: "KDUMPLING")
+
+        Returns:
+            self for method chaining
+
+        Example:
+            builder.add_metadata({
+                "sha256": "abc123...",
+                "created_at": "2024-01-28T10:30:00Z",
+                "source": "memory_forensics_tool"
+            })
+        """
+        if isinstance(data, dict):
+            lines = [f"{k}={v}" for k, v in data.items()]
+            data_bytes = "\n".join(lines).encode("utf-8")
+        elif isinstance(data, str):
+            data_bytes = data.encode("utf-8")
+        else:
+            data_bytes = data
+
+        return self.add_custom_note(
+            name=vendor,
+            note_type=CustomNoteType.METADATA,
+            data=data_bytes,
+        )
+
+    def add_annotations(
+        self,
+        annotations: dict[str, str],
+        vendor: bytes | str = DEFAULT_NOTE_VENDOR,
+    ) -> KdumpBuilder:
+        """
+        Add custom annotations to the vmcore.
+
+        Annotations are free-form key-value pairs that can be used
+        to attach contextual information to the dump.
+
+        Args:
+            annotations: Dictionary of annotation key-value pairs
+            vendor: Vendor name for the note (default: "KDUMPLING")
+
+        Returns:
+            self for method chaining
+
+        Example:
+            builder.add_annotations({
+                "hostname": "prod-server-01",
+                "kernel_panic_reason": "out of memory",
+                "captured_by": "crash_collector v2.1"
+            })
+        """
+        lines = [f"{k}={v}" for k, v in annotations.items()]
+        data = "\n".join(lines).encode("utf-8")
+
+        return self.add_custom_note(
+            name=vendor,
+            note_type=CustomNoteType.ANNOTATIONS,
+            data=data,
+        )
+
     @property
     def stats(self) -> DumpStats:
         """
@@ -299,6 +483,13 @@ class KdumpBuilder:
             name_size = len(CORE_NOTE_NAME) + 1
             name_padded = (name_size + 3) & ~3
             data_padded = (prstatus_size + 3) & ~3
+            notes_size += 12 + name_padded + data_padded
+
+        # Custom notes
+        for note in self._custom_notes:
+            name_size = len(note.name) + 1
+            name_padded = (name_size + 3) & ~3
+            data_padded = (len(note.data) + 3) & ~3
             notes_size += 12 + name_padded + data_padded
 
         # Calculate estimated file size
@@ -350,15 +541,55 @@ class KdumpBuilder:
             )
             notes.extend(note)
 
+        # Add custom notes
+        for custom_note in self._custom_notes:
+            note = pack_elf_note(
+                self._arch_info.endianness,
+                custom_note.name,
+                custom_note.note_type,
+                custom_note.data,
+            )
+            notes.extend(note)
+
         return bytes(notes)
 
-    def write(self, output_path: str) -> None:
+    def write(
+        self,
+        output_path: str,
+        format: OutputFormat = OutputFormat.ELF,
+        compression: CompressionType = CompressionType.ZLIB,
+        compression_level: int = 6,
+    ) -> None:
         """
         Write the vmcore file to disk.
 
         Args:
             output_path: Path where the vmcore file will be written
+            format: Output format (ELF or KDUMP_COMPRESSED). Default is ELF.
+            compression: Compression type for KDUMP_COMPRESSED format.
+                         Default is ZLIB. Ignored for ELF format.
+            compression_level: Compression level 1-9. Default is 6.
+                               Ignored for ELF format.
+
+        Example:
+            # Write standard ELF vmcore (default)
+            builder.write("output.vmcore")
+
+            # Write kdump compressed format with zlib
+            builder.write(
+                "output.vmcore",
+                format=OutputFormat.KDUMP_COMPRESSED,
+                compression=CompressionType.ZLIB
+            )
         """
+        if format == OutputFormat.KDUMP_COMPRESSED:
+            self._write_compressed(output_path, compression, compression_level)
+            return
+
+        self._write_elf(output_path)
+
+    def _write_elf(self, output_path: str) -> None:
+        """Write the vmcore in standard ELF format."""
         endianness = self._arch_info.endianness
         machine = self._arch_info.machine
 
@@ -439,3 +670,44 @@ class KdumpBuilder:
             # 4. Memory segment data
             for segment in self._segments:
                 segment.write_to(f)
+
+    def _write_compressed(
+        self,
+        output_path: str,
+        compression: CompressionType,
+        compression_level: int,
+    ) -> None:
+        """Write the vmcore in kdump compressed format."""
+        from .kdump_compressed import CompressionMethod, write_kdump_compressed
+
+        # Map CompressionType to CompressionMethod
+        compression_map = {
+            CompressionType.NONE: CompressionMethod.COMPRESS_NONE,
+            CompressionType.ZLIB: CompressionMethod.COMPRESS_ZLIB,
+            CompressionType.LZO: CompressionMethod.COMPRESS_LZO,
+            CompressionType.SNAPPY: CompressionMethod.COMPRESS_SNAPPY,
+            CompressionType.ZSTD: CompressionMethod.COMPRESS_ZSTD,
+        }
+        comp_method = compression_map.get(compression, CompressionMethod.COMPRESS_ZLIB)
+
+        # Build notes section
+        notes_data = self._build_notes_section()
+
+        # Extract OSRELEASE from vmcoreinfo if available
+        osrelease = ""
+        if self._vmcoreinfo:
+            for line in self._vmcoreinfo.decode("utf-8", errors="ignore").split("\n"):
+                if line.startswith("OSRELEASE="):
+                    osrelease = line.split("=", 1)[1].strip()
+                    break
+
+        write_kdump_compressed(
+            output_path=output_path,
+            segments=self._segments,
+            vmcoreinfo=self._vmcoreinfo,
+            notes_data=notes_data,
+            arch_info=self._arch_info,
+            compression=comp_method,
+            compression_level=compression_level,
+            osrelease=osrelease,
+        )
