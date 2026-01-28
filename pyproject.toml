@@ -31,6 +31,7 @@ dev = [
     "pyelftools>=0.29",
     "mypy>=1.0",
     "ruff>=0.1.0",
+    "drgn>=0.0.25",
 ]
 
 [project.urls]
@@ -74,6 +75,10 @@ strict_optional = true
 
 [[tool.mypy.overrides]]
 module = "elftools.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "drgn.*"
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
