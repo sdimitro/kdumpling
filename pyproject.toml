@@ -1,0 +1,91 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kdumpling"
+version = "0.1.0"
+description = "A Python library for creating Linux kdump crash dump files"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.8"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: System :: Operating System Kernels :: Linux",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+keywords = ["kdump", "vmcore", "linux", "crash", "elf", "coredump"]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pyelftools>=0.29",
+    "mypy>=1.0",
+    "ruff>=0.1.0",
+    "drgn>=0.0.25",
+]
+
+[project.urls]
+Homepage = "https://github.com/sdimitro/kdumpling"
+Repository = "https://github.com/sdimitro/kdumpling"
+
+[tool.setuptools.packages.find]
+include = ["kdumpling*"]
+
+[tool.setuptools.package-data]
+kdumpling = ["py.typed"]
+
+[tool.ruff]
+target-version = "py38"
+line-length = 88
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # pyflakes
+    "I",      # isort
+    "B",      # flake8-bugbear
+    "UP",     # pyupgrade
+]
+ignore = [
+    "E501",   # line too long (handled by formatter)
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["kdumpling"]
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+strict_optional = true
+
+[[tool.mypy.overrides]]
+module = "elftools.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "drgn.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "kdumpfile.*"
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
