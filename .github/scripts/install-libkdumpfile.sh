@@ -35,7 +35,7 @@ sudo ldconfig
 # Now install the Python bindings (pykdumpfile)
 # The Python bindings are in a separate repository since libkdumpfile 0.5.5
 cd /tmp
-git clone https://github.com/ptesarik/pykdumpfile.git
+git clone https://codeberg.org/ptesarik/pykdumpfile.git
 cd pykdumpfile
 
 # Install using pip (which respects the Python set up by actions/setup-python)
