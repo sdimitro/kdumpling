@@ -8,7 +8,7 @@ import os
 from dataclasses import dataclass, field
 from typing import BinaryIO
 
-from .cpu_context import CpuContext, NoteType, pack_prstatus
+from .cpu_context import CpuContext, NoteType, get_prstatus_size, pack_prstatus
 from .elf import (
     ARCHITECTURES,
     ELF64_EHDR_SIZE,
@@ -28,6 +28,62 @@ VMCOREINFO_NOTE_TYPE = 0
 
 # Note name for CPU core dumps
 CORE_NOTE_NAME = b"CORE"
+
+
+def _format_size(size_bytes: int) -> str:
+    """Format a size in bytes to a human-readable string."""
+    if size_bytes < 1024:
+        return f"{size_bytes} B"
+    elif size_bytes < 1024 * 1024:
+        return f"{size_bytes / 1024:.1f} KB"
+    elif size_bytes < 1024 * 1024 * 1024:
+        return f"{size_bytes / (1024 * 1024):.1f} MB"
+    else:
+        return f"{size_bytes / (1024 * 1024 * 1024):.1f} GB"
+
+
+@dataclass
+class DumpStats:
+    """
+    Statistics about a vmcore dump being built.
+
+    Provides information about the dump's contents and estimated size.
+    """
+
+    architecture: str
+    num_memory_segments: int
+    num_cpu_contexts: int
+    total_memory_size: int
+    vmcoreinfo_size: int
+    estimated_file_size: int
+    memory_segments: list[tuple[int, int]]  # List of (phys_addr, size) tuples
+
+    @property
+    def total_memory_size_human(self) -> str:
+        """Total memory size in human-readable format."""
+        return _format_size(self.total_memory_size)
+
+    @property
+    def estimated_file_size_human(self) -> str:
+        """Estimated file size in human-readable format."""
+        return _format_size(self.estimated_file_size)
+
+    def __str__(self) -> str:
+        """Return a formatted string representation of the stats."""
+        lines = [
+            "Dump Statistics:",
+            f"  Architecture: {self.architecture}",
+            f"  Memory Segments: {self.num_memory_segments}",
+            f"  CPU Contexts: {self.num_cpu_contexts}",
+            f"  Total Memory: {self.total_memory_size_human} ({self.total_memory_size} bytes)",
+            f"  VMCOREINFO Size: {self.vmcoreinfo_size} bytes",
+            f"  Estimated File Size: {self.estimated_file_size_human}",
+        ]
+        if self.memory_segments:
+            lines.append("  Segments:")
+            for phys_addr, size in self.memory_segments:
+                lines.append(f"    0x{phys_addr:016x}: {_format_size(size)}")
+        return "\n".join(lines)
 
 
 @dataclass
@@ -207,6 +263,67 @@ class KdumpBuilder:
         )
         self._cpu_contexts.append(ctx)
         return self
+
+    @property
+    def stats(self) -> DumpStats:
+        """
+        Get statistics about the dump being built.
+
+        Returns:
+            DumpStats object with information about segments, size, etc.
+
+        Example:
+            builder = KdumpBuilder()
+            builder.add_memory_segment(0x1000, b"\\x00" * 4096)
+            print(builder.stats)
+            # Dump Statistics:
+            #   Architecture: x86_64
+            #   Memory Segments: 1
+            #   ...
+        """
+        # Calculate total memory size
+        total_memory = sum(seg.size for seg in self._segments)
+
+        # Calculate notes section size
+        notes_size = 0
+        if self._vmcoreinfo:
+            # VMCOREINFO note: header (12 bytes) + name (aligned) + data (aligned)
+            name_size = len(VMCOREINFO_NOTE_NAME) + 1  # +1 for null terminator
+            name_padded = (name_size + 3) & ~3
+            data_padded = (len(self._vmcoreinfo) + 3) & ~3
+            notes_size += 12 + name_padded + data_padded
+
+        # NT_PRSTATUS notes
+        for _ in self._cpu_contexts:
+            prstatus_size = get_prstatus_size(self.arch)
+            name_size = len(CORE_NOTE_NAME) + 1
+            name_padded = (name_size + 3) & ~3
+            data_padded = (prstatus_size + 3) & ~3
+            notes_size += 12 + name_padded + data_padded
+
+        # Calculate estimated file size
+        has_notes = notes_size > 0 or len(self._cpu_contexts) > 0
+        phdr_count = (1 if has_notes else 0) + len(self._segments)
+
+        estimated_size = (
+            ELF64_EHDR_SIZE  # ELF header
+            + phdr_count * ELF64_PHDR_SIZE  # Program headers
+            + notes_size  # Notes section
+            + total_memory  # Memory data
+        )
+
+        # Build segment list
+        segment_list = [(seg.phys_addr, seg.size) for seg in self._segments]
+
+        return DumpStats(
+            architecture=self.arch,
+            num_memory_segments=len(self._segments),
+            num_cpu_contexts=len(self._cpu_contexts),
+            total_memory_size=total_memory,
+            vmcoreinfo_size=len(self._vmcoreinfo),
+            estimated_file_size=estimated_size,
+            memory_segments=segment_list,
+        )
 
     def _build_notes_section(self) -> bytes:
         """Build the PT_NOTE section containing VMCOREINFO and CPU contexts."""

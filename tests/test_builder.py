@@ -494,3 +494,119 @@ class TestCpuContext:
                 assert len(prstatus_notes) == 1
         finally:
             os.unlink(output_path)
+
+
+class TestDumpStats:
+    """Tests for the DumpStats API."""
+
+    def test_stats_empty_builder(self) -> None:
+        """Test stats on an empty builder."""
+        builder = KdumpBuilder(arch="x86_64")
+        stats = builder.stats
+
+        assert stats.architecture == "x86_64"
+        assert stats.num_memory_segments == 0
+        assert stats.num_cpu_contexts == 0
+        assert stats.total_memory_size == 0
+        assert stats.vmcoreinfo_size == 0
+        assert stats.memory_segments == []
+
+    def test_stats_with_memory_segments(self) -> None:
+        """Test stats with memory segments."""
+        builder = KdumpBuilder(arch="x86_64")
+        builder.add_memory_segment(0x100000, b"\x00" * 4096)
+        builder.add_memory_segment(0x200000, b"\x00" * 8192)
+
+        stats = builder.stats
+
+        assert stats.num_memory_segments == 2
+        assert stats.total_memory_size == 4096 + 8192
+        assert len(stats.memory_segments) == 2
+        assert stats.memory_segments[0] == (0x100000, 4096)
+        assert stats.memory_segments[1] == (0x200000, 8192)
+
+    def test_stats_with_vmcoreinfo(self) -> None:
+        """Test stats with vmcoreinfo."""
+        vmcoreinfo = "OSRELEASE=5.14.0\nPAGESIZE=4096\n"
+        builder = KdumpBuilder(arch="x86_64")
+        builder.set_vmcoreinfo(vmcoreinfo)
+
+        stats = builder.stats
+
+        assert stats.vmcoreinfo_size == len(vmcoreinfo)
+
+    def test_stats_with_cpu_contexts(self) -> None:
+        """Test stats with CPU contexts."""
+        builder = KdumpBuilder(arch="x86_64")
+        builder.add_cpu_context(cpu_id=0, registers={"RIP": 0x1000})
+        builder.add_cpu_context(cpu_id=1, registers={"RIP": 0x2000})
+        builder.add_cpu_context(cpu_id=2, registers={"RIP": 0x3000})
+
+        stats = builder.stats
+
+        assert stats.num_cpu_contexts == 3
+
+    def test_stats_estimated_file_size(self) -> None:
+        """Test that estimated file size is reasonable."""
+        builder = KdumpBuilder(arch="x86_64")
+        builder.set_vmcoreinfo("TEST=1\n")
+        builder.add_memory_segment(0x100000, b"\x00" * 4096)
+
+        stats = builder.stats
+
+        # File size should be at least the memory size plus headers
+        assert stats.estimated_file_size > stats.total_memory_size
+        # But not absurdly large
+        assert stats.estimated_file_size < stats.total_memory_size + 10000
+
+        # Write and verify actual size is close to estimate
+        with tempfile.NamedTemporaryFile(suffix=".vmcore", delete=False) as f:
+            output_path = f.name
+
+        try:
+            builder.write(output_path)
+            actual_size = os.path.getsize(output_path)
+            # Estimated size should be very close to actual
+            assert abs(actual_size - stats.estimated_file_size) < 100
+        finally:
+            os.unlink(output_path)
+
+    def test_stats_human_readable_sizes(self) -> None:
+        """Test human-readable size formatting."""
+        builder = KdumpBuilder(arch="x86_64")
+
+        # Test bytes
+        builder.add_memory_segment(0x1000, b"\x00" * 100)
+        assert "100 B" in builder.stats.total_memory_size_human
+
+        # Test KB
+        builder = KdumpBuilder(arch="x86_64")
+        builder.add_memory_segment(0x1000, b"\x00" * 2048)
+        assert "KB" in builder.stats.total_memory_size_human
+
+        # Test MB
+        builder = KdumpBuilder(arch="x86_64")
+        builder.add_memory_segment(0x1000, b"\x00" * (2 * 1024 * 1024))
+        assert "MB" in builder.stats.total_memory_size_human
+
+    def test_stats_string_representation(self) -> None:
+        """Test the string representation of stats."""
+        builder = KdumpBuilder(arch="x86_64")
+        builder.set_vmcoreinfo("OSRELEASE=test\n")
+        builder.add_memory_segment(0x100000, b"\x00" * 4096)
+        builder.add_cpu_context(cpu_id=0)
+
+        stats_str = str(builder.stats)
+
+        assert "Dump Statistics:" in stats_str
+        assert "x86_64" in stats_str
+        assert "Memory Segments: 1" in stats_str
+        assert "CPU Contexts: 1" in stats_str
+        assert "0x0000000000100000" in stats_str
+
+    def test_stats_different_architectures(self) -> None:
+        """Test stats for different architectures."""
+        for arch in ["x86_64", "aarch64", "s390x"]:
+            builder = KdumpBuilder(arch=arch)
+            stats = builder.stats
+            assert stats.architecture == arch
