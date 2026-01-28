@@ -1,3 +1,9 @@
+```{image} https://github.com/sdimitro/kdumpling/raw/main/assets/logo.png
+:alt: kdumpling logo
+:width: 400px
+:align: center
+```
+
 # kdumpling
 
 A Python library for creating Linux kdump crash dump files.

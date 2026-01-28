@@ -1,11 +1,17 @@
-# kdumpling
+<p align="center">
+  <img src="https://github.com/sdimitro/kdumpling/raw/main/assets/logo.png" alt="kdumpling logo" width="400">
+</p>
 
-[![CI](https://github.com/sdimitro/kdumpling/actions/workflows/ci.yml/badge.svg)](https://github.com/sdimitro/kdumpling/actions/workflows/ci.yml)
-[![PyPI version](https://badge.fury.io/py/kdumpling.svg)](https://badge.fury.io/py/kdumpling)
-[![Python versions](https://img.shields.io/pypi/pyversions/kdumpling.svg)](https://pypi.org/project/kdumpling/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+<h1 align="center">kdumpling</h1>
 
-A Python library for creating Linux kdump crash dump files.
+<p align="center">
+  <a href="https://github.com/sdimitro/kdumpling/actions/workflows/ci.yml"><img src="https://github.com/sdimitro/kdumpling/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://badge.fury.io/py/kdumpling"><img src="https://badge.fury.io/py/kdumpling.svg" alt="PyPI version"></a>
+  <a href="https://pypi.org/project/kdumpling/"><img src="https://img.shields.io/pypi/pyversions/kdumpling.svg" alt="Python versions"></a>
+  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
+</p>
+
+<p align="center">A Python library for creating Linux kdump crash dump files.</p>
 
 > **Note:** This library is currently a work in progress. The API may change in future releases.
 
