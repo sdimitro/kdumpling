@@ -81,6 +81,10 @@ ignore_missing_imports = true
 module = "drgn.*"
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+module = "kdumpfile.*"
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]

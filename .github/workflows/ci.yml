@@ -93,4 +93,27 @@ jobs:
           pip install -e .
 
       - name: Run all tests (including drgn integration)
+        run: python -m pytest tests/test_builder.py tests/test_drgn_integration.py -v
+
+  test-libkdumpfile:
+    name: Test with libkdumpfile
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install libkdumpfile
+        run: ./.github/scripts/install-libkdumpfile.sh
+
+      - name: Install dependencies
+        run: |
+          pip install pytest pyelftools drgn
+          pip install -e .
+
+      - name: Run all tests (including libkdumpfile integration)
         run: python -m pytest tests/ -v
