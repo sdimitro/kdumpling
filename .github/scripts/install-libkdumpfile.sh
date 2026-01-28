@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Install libkdumpfile from source with Python bindings
+# Install libkdumpfile from source with Python bindings (pykdumpfile)
 #
 set -eux
 
@@ -15,27 +15,32 @@ sudo apt-get install -y \
     libtool \
     pkg-config \
     python3-dev \
-    zlib1g-dev
+    zlib1g-dev \
+    libzstd-dev
 
-# Clone libkdumpfile
+# Clone and build libkdumpfile (C library)
 cd /tmp
 git clone https://codeberg.org/ptesarik/libkdumpfile.git
 cd libkdumpfile
 
-# Use `python` (which actions/setup-python configures) instead of python3
-# This ensures we install for the correct Python version
-PYTHON_PATH=$(which python)
-echo "Installing libkdumpfile for Python: $PYTHON_PATH"
-
-# Build and install
+# Build and install the C library
 autoreconf -fi
-./configure --with-python="$PYTHON_PATH"
+./configure
 make -j$(nproc)
 sudo make install
 
 # Update library cache
 sudo ldconfig
 
-# Verify installation - this should NOT fail silently
+# Now install the Python bindings (pykdumpfile)
+# The Python bindings are in a separate repository since libkdumpfile 0.5.5
+cd /tmp
+git clone https://github.com/ptesarik/pykdumpfile.git
+cd pykdumpfile
+
+# Install using pip (which respects the Python set up by actions/setup-python)
+pip install .
+
+# Verify installation
 python -c "import kdumpfile; print(f'kdumpfile version: {kdumpfile.__version__}')"
 echo "kdumpfile module installed successfully"
