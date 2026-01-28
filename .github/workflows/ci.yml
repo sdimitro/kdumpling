@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [develop]
 
+permissions:
+  contents: read
+
 jobs:
   lint:
     name: Lint & Format
@@ -112,8 +115,15 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install pytest pyelftools drgn
+          pip install pytest pytest-cov pyelftools drgn
           pip install -e .
 
-      - name: Run all tests (including libkdumpfile integration)
-        run: python -m pytest tests/ -v
+      - name: Run all tests with coverage
+        run: python -m pytest tests/ -v --cov=kdumpling --cov-report=xml --cov-report=term
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: ./coverage.xml
+          fail_ci_if_error: false
+          verbose: true
