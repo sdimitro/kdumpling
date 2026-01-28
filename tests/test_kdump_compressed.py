@@ -16,8 +16,7 @@ import pytest
 
 from kdumpling import CompressionType, KdumpBuilder, OutputFormat
 
-from .conftest import VMCOREINFO_X86_64, VMCOREINFO_AARCH64
-
+from .conftest import VMCOREINFO_AARCH64, VMCOREINFO_X86_64
 
 # Kdump format constants
 KDUMP_SIGNATURE = b"KDUMP   "
