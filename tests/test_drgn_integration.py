@@ -149,3 +149,70 @@ class TestDrgnIntegration:
 
         assert drgn.PlatformFlags.IS_LITTLE_ENDIAN in prog_arm.platform.flags
         assert drgn.PlatformFlags.IS_64_BIT in prog_arm.platform.flags
+
+    def test_drgn_reads_memory_by_virtual_address(
+        self, vmcore_output_path: str
+    ) -> None:
+        """Test that drgn can read memory using virtual addresses.
+
+        This is critical for SDB integration - SDB records memory by virtual
+        address and needs drgn to read it back the same way.
+        """
+        # Create test data with recognizable patterns
+        test_data_1 = b"\xde\xad\xbe\xef" * 1024  # 4KB
+        test_data_2 = b"\xca\xfe\xba\xbe" * 1024  # 4KB
+
+        # Physical and virtual addresses
+        phys_addr_1 = 0x100000
+        virt_addr_1 = 0xFFFF888000100000  # Typical direct mapping
+
+        phys_addr_2 = 0x200000
+        virt_addr_2 = 0xFFFF888000200000
+
+        builder = KdumpBuilder(arch="x86_64")
+        builder.set_vmcoreinfo(VMCOREINFO_X86_64)
+        builder.add_memory_segment(
+            phys_addr=phys_addr_1, data=test_data_1, virt_addr=virt_addr_1
+        )
+        builder.add_memory_segment(
+            phys_addr=phys_addr_2, data=test_data_2, virt_addr=virt_addr_2
+        )
+        builder.write(vmcore_output_path)
+
+        prog = drgn.Program()
+        prog.set_core_dump(vmcore_output_path)
+
+        # Read memory by virtual address - this is what SDB replay needs
+        read_data_1 = prog.read(virt_addr_1, len(test_data_1))
+        read_data_2 = prog.read(virt_addr_2, len(test_data_2))
+
+        assert read_data_1 == test_data_1, "Data read by virtual address should match"
+        assert read_data_2 == test_data_2, "Data read by virtual address should match"
+
+        # Also verify partial reads work
+        partial_read = prog.read(virt_addr_1 + 4, 8)
+        assert partial_read == test_data_1[4:12]
+
+    def test_drgn_reads_memory_virt_addr_defaults_to_phys(
+        self, vmcore_output_path: str
+    ) -> None:
+        """Test that segments without explicit virt_addr can be read by phys_addr.
+
+        When virt_addr is not specified, it defaults to phys_addr, so reading
+        by the physical address value should work.
+        """
+        test_data = b"\x11\x22\x33\x44" * 512  # 2KB
+        phys_addr = 0x300000
+
+        builder = KdumpBuilder(arch="x86_64")
+        builder.set_vmcoreinfo(VMCOREINFO_X86_64)
+        # No virt_addr specified - should default to phys_addr
+        builder.add_memory_segment(phys_addr=phys_addr, data=test_data)
+        builder.write(vmcore_output_path)
+
+        prog = drgn.Program()
+        prog.set_core_dump(vmcore_output_path)
+
+        # Read by the address (which is both phys and virt)
+        read_data = prog.read(phys_addr, len(test_data))
+        assert read_data == test_data

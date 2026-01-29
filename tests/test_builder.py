@@ -522,8 +522,9 @@ class TestDumpStats:
         assert stats.num_memory_segments == 2
         assert stats.total_memory_size == 4096 + 8192
         assert len(stats.memory_segments) == 2
-        assert stats.memory_segments[0] == (0x100000, 4096)
-        assert stats.memory_segments[1] == (0x200000, 8192)
+        # Format: (phys_addr, virt_addr, size) - virt_addr defaults to phys_addr
+        assert stats.memory_segments[0] == (0x100000, 0x100000, 4096)
+        assert stats.memory_segments[1] == (0x200000, 0x200000, 8192)
 
     def test_stats_with_vmcoreinfo(self) -> None:
         """Test stats with vmcoreinfo."""
@@ -610,3 +611,194 @@ class TestDumpStats:
             builder = KdumpBuilder(arch=arch)
             stats = builder.stats
             assert stats.architecture == arch
+
+
+class TestVirtualAddressSupport:
+    """Tests for virtual address support in memory segments."""
+
+    def test_segment_with_explicit_virt_addr(self) -> None:
+        """Test creating a segment with an explicit virtual address."""
+        test_data = b"\xde\xad\xbe\xef" * 1024
+        phys_addr = 0x100000
+        virt_addr = 0xFFFF888000100000  # Typical kernel direct mapping
+
+        builder = KdumpBuilder(arch="x86_64")
+        builder.add_memory_segment(
+            phys_addr=phys_addr, data=test_data, virt_addr=virt_addr
+        )
+
+        with tempfile.NamedTemporaryFile(suffix=".vmcore", delete=False) as f:
+            output_path = f.name
+
+        try:
+            builder.write(output_path)
+
+            with open(output_path, "rb") as f:
+                elf = ELFFile(f)
+
+                load_segments = [
+                    s for s in elf.iter_segments() if s["p_type"] == "PT_LOAD"
+                ]
+                assert len(load_segments) == 1
+
+                load_segment = load_segments[0]
+                assert load_segment["p_paddr"] == phys_addr
+                assert load_segment["p_vaddr"] == virt_addr
+                assert load_segment.data() == test_data
+        finally:
+            os.unlink(output_path)
+
+    def test_segment_without_virt_addr_defaults_to_phys(self) -> None:
+        """Test that segments without virt_addr default to phys_addr."""
+        test_data = b"\xca\xfe" * 512
+        phys_addr = 0x200000
+
+        builder = KdumpBuilder(arch="x86_64")
+        builder.add_memory_segment(phys_addr=phys_addr, data=test_data)
+
+        with tempfile.NamedTemporaryFile(suffix=".vmcore", delete=False) as f:
+            output_path = f.name
+
+        try:
+            builder.write(output_path)
+
+            with open(output_path, "rb") as f:
+                elf = ELFFile(f)
+
+                load_segments = [
+                    s for s in elf.iter_segments() if s["p_type"] == "PT_LOAD"
+                ]
+                assert len(load_segments) == 1
+
+                load_segment = load_segments[0]
+                # When virt_addr is not specified, it should default to phys_addr
+                assert load_segment["p_paddr"] == phys_addr
+                assert load_segment["p_vaddr"] == phys_addr
+        finally:
+            os.unlink(output_path)
+
+    def test_multiple_segments_with_different_virt_addrs(self) -> None:
+        """Test multiple segments with various virtual address configurations."""
+        segments_config = [
+            # (phys_addr, virt_addr, data)
+            (0x100000, 0xFFFF888000100000, b"\x11" * 4096),
+            (0x200000, None, b"\x22" * 4096),  # Should default to phys_addr
+            (0x300000, 0xFFFFFFFF81300000, b"\x33" * 4096),  # Kernel text mapping
+        ]
+
+        builder = KdumpBuilder(arch="x86_64")
+        for phys_addr, virt_addr, data in segments_config:
+            builder.add_memory_segment(
+                phys_addr=phys_addr, data=data, virt_addr=virt_addr
+            )
+
+        with tempfile.NamedTemporaryFile(suffix=".vmcore", delete=False) as f:
+            output_path = f.name
+
+        try:
+            builder.write(output_path)
+
+            with open(output_path, "rb") as f:
+                elf = ELFFile(f)
+
+                load_segments = [
+                    s for s in elf.iter_segments() if s["p_type"] == "PT_LOAD"
+                ]
+                assert len(load_segments) == 3
+
+                # Verify each segment
+                for i, load_segment in enumerate(load_segments):
+                    phys_addr, virt_addr, data = segments_config[i]
+                    expected_virt = virt_addr if virt_addr is not None else phys_addr
+
+                    assert load_segment["p_paddr"] == phys_addr
+                    assert load_segment["p_vaddr"] == expected_virt
+                    assert load_segment.data() == data
+        finally:
+            os.unlink(output_path)
+
+    def test_stats_include_virt_addr(self) -> None:
+        """Test that stats include virtual addresses for segments."""
+        builder = KdumpBuilder(arch="x86_64")
+        builder.add_memory_segment(
+            phys_addr=0x100000, data=b"\x00" * 4096, virt_addr=0xFFFF888000100000
+        )
+        builder.add_memory_segment(
+            phys_addr=0x200000, data=b"\x00" * 8192
+        )  # No virt_addr
+
+        stats = builder.stats
+
+        assert len(stats.memory_segments) == 2
+
+        # First segment: explicit virt_addr
+        phys, virt, size = stats.memory_segments[0]
+        assert phys == 0x100000
+        assert virt == 0xFFFF888000100000
+        assert size == 4096
+
+        # Second segment: virt_addr defaults to phys_addr
+        phys, virt, size = stats.memory_segments[1]
+        assert phys == 0x200000
+        assert virt == 0x200000  # Should default to phys_addr
+        assert size == 8192
+
+    def test_stats_string_shows_virt_addr_when_different(self) -> None:
+        """Test that stats string shows virt_addr when it differs from phys_addr."""
+        builder = KdumpBuilder(arch="x86_64")
+        builder.add_memory_segment(
+            phys_addr=0x100000, data=b"\x00" * 4096, virt_addr=0xFFFF888000100000
+        )
+
+        stats_str = str(builder.stats)
+
+        # Should show both addresses when they differ
+        assert "phys=0x" in stats_str
+        assert "virt=0x" in stats_str
+        assert "ffff888000100000" in stats_str.lower()
+
+    def test_fluent_api_with_virt_addr(self) -> None:
+        """Test that the fluent API works with virtual addresses."""
+        with tempfile.NamedTemporaryFile(suffix=".vmcore", delete=False) as f:
+            output_path = f.name
+
+        try:
+            (
+                KdumpBuilder(arch="x86_64")
+                .set_vmcoreinfo("TEST=1\n")
+                .add_memory_segment(
+                    phys_addr=0x1000, data=b"\x00" * 100, virt_addr=0xFFFF888000001000
+                )
+                .add_memory_segment(phys_addr=0x2000, data=b"\xff" * 100)
+                .write(output_path)
+            )
+
+            assert os.path.exists(output_path)
+            assert os.path.getsize(output_path) > 0
+        finally:
+            os.unlink(output_path)
+
+    def test_virt_addr_with_different_architectures(self) -> None:
+        """Test virtual address support across different architectures."""
+        for arch in ["x86_64", "aarch64", "s390x"]:
+            builder = KdumpBuilder(arch=arch)
+            builder.add_memory_segment(
+                phys_addr=0x100000, data=b"\x00" * 64, virt_addr=0xFFFF000000100000
+            )
+
+            with tempfile.NamedTemporaryFile(suffix=".vmcore", delete=False) as f:
+                output_path = f.name
+
+            try:
+                builder.write(output_path)
+
+                with open(output_path, "rb") as f:
+                    elf = ELFFile(f)
+                    load_segments = [
+                        s for s in elf.iter_segments() if s["p_type"] == "PT_LOAD"
+                    ]
+                    assert len(load_segments) == 1
+                    assert load_segments[0]["p_vaddr"] == 0xFFFF000000100000
+                    assert load_segments[0]["p_paddr"] == 0x100000
+            finally:
+                os.unlink(output_path)
