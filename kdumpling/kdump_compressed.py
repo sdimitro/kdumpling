@@ -508,29 +508,18 @@ def write_kdump_compressed(
     bitmap_bytes = (bitmap_bits + 7) // 8
     bitmap_blocks = (bitmap_bytes + BLOCK_SIZE - 1) // BLOCK_SIZE
 
-    # File layout:
-    # Offset 0x0000: disk_dump_header (with "KDUMP   " signature)
-    # Offset 0x1000: kdump_sub_header
-    # Offset 0x2000: vmcoreinfo data
-    # Offset varies: notes data
-    # Offset varies: 1st bitmap (valid pages)
-    # Offset varies: 2nd bitmap (dumped pages)
-    # Offset varies: page descriptors
-    # Offset varies: page data
+    # File layout (per makedumpfile specification):
+    # Block 0 (0x0000): disk_dump_header (with "KDUMP   " signature)
+    # Block 1 (0x1000): kdump_sub_header
+    # Block 2 (0x2000): 1st-bitmap (valid pages)
+    # Block 2 + X: 2nd-bitmap (dumped pages)
+    # After bitmaps (aligned): page descriptors
+    # After page descriptors: page data
+    # After page data: vmcoreinfo (offset in sub_header)
+    # After vmcoreinfo: notes (offset in sub_header)
 
-    vmcoreinfo_offset = 2 * BLOCK_SIZE
-    vmcoreinfo_size = len(vmcoreinfo)
-    vmcoreinfo_blocks = (vmcoreinfo_size + BLOCK_SIZE - 1) // BLOCK_SIZE
-    if vmcoreinfo_blocks == 0:
-        vmcoreinfo_blocks = 1
-
-    notes_offset = vmcoreinfo_offset + vmcoreinfo_blocks * BLOCK_SIZE
-    notes_size = len(notes_data)
-    notes_blocks = (notes_size + BLOCK_SIZE - 1) // BLOCK_SIZE
-    if notes_blocks == 0 and notes_size > 0:
-        notes_blocks = 1
-
-    bitmap_offset = notes_offset + notes_blocks * BLOCK_SIZE
+    # Bitmaps start at block 2
+    bitmap_offset = 2 * BLOCK_SIZE
 
     # We use two bitmaps:
     # 1st bitmap: which pages have valid memory (from segments)
@@ -623,6 +612,24 @@ def write_kdump_compressed(
         pd.offset = current_data_offset
         current_data_offset += pd.size
 
+    # Calculate total page data size
+    total_page_data_size = sum(len(d) for d in page_data_list)
+
+    # vmcoreinfo comes after page data (aligned to block boundary)
+    vmcoreinfo_size = len(vmcoreinfo)
+    vmcoreinfo_offset = page_data_offset + total_page_data_size
+    # Align to block boundary
+    if vmcoreinfo_offset % BLOCK_SIZE != 0:
+        vmcoreinfo_offset = ((vmcoreinfo_offset // BLOCK_SIZE) + 1) * BLOCK_SIZE
+
+    # notes come after vmcoreinfo
+    notes_size = len(notes_data)
+    if vmcoreinfo_size > 0:
+        vmcoreinfo_blocks = (vmcoreinfo_size + BLOCK_SIZE - 1) // BLOCK_SIZE
+        notes_offset = vmcoreinfo_offset + vmcoreinfo_blocks * BLOCK_SIZE
+    else:
+        notes_offset = vmcoreinfo_offset
+
     # Create headers
     timestamp = int(time.time())
 
@@ -649,7 +656,7 @@ def write_kdump_compressed(
         status=compression,
         block_size=page_size,
         sub_hdr_size=1,
-        bitmap_blocks=total_bitmap_blocks,
+        bitmap_blocks=bitmap_blocks,  # Size of ONE bitmap in blocks (not both)
         max_mapnr=min(max_pfn, 0xFFFFFFFF),  # 32-bit field
         total_ram_blocks=dumped_page_count,
         device_blocks=0,
@@ -683,28 +690,12 @@ def write_kdump_compressed(
         # Block 1: kdump_sub_header
         f.write(sub_header.pack(endianness))
 
-        # VMCOREINFO
-        f.seek(vmcoreinfo_offset)
-        f.write(vmcoreinfo)
-        # Pad to block boundary
-        padding = vmcoreinfo_blocks * BLOCK_SIZE - vmcoreinfo_size
-        if padding > 0:
-            f.write(b"\x00" * padding)
-
-        # Notes
-        if notes_size > 0:
-            f.seek(notes_offset)
-            f.write(notes_data)
-            padding = notes_blocks * BLOCK_SIZE - notes_size
-            if padding > 0:
-                f.write(b"\x00" * padding)
-
-        # Bitmaps
+        # Block 2+: Bitmaps (must be at block 2 per makedumpfile spec)
         f.seek(bitmap_offset)
         f.write(bitmap1)
         f.write(bitmap2)
 
-        # Page descriptors
+        # Page descriptors (aligned to block boundary after bitmaps)
         f.seek(pd_offset)
         for pd in page_descriptors:
             f.write(pd.pack(endianness))
@@ -715,7 +706,17 @@ def write_kdump_compressed(
         if pd_padding > 0:
             f.write(b"\x00" * pd_padding)
 
-        # Page data
+        # Page data (immediately after descriptors, not aligned)
         f.seek(page_data_offset)
         for page_data in page_data_list:
             f.write(page_data)
+
+        # VMCOREINFO (after page data, aligned to block boundary)
+        if vmcoreinfo_size > 0:
+            f.seek(vmcoreinfo_offset)
+            f.write(vmcoreinfo)
+
+        # Notes (after vmcoreinfo)
+        if notes_size > 0:
+            f.seek(notes_offset)
+            f.write(notes_data)
