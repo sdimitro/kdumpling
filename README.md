@@ -8,7 +8,7 @@
   <a href="https://github.com/sdimitro/kdumpling/actions/workflows/ci.yml"><img src="https://github.com/sdimitro/kdumpling/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://codecov.io/gh/sdimitro/kdumpling"><img src="https://codecov.io/gh/sdimitro/kdumpling/graph/badge.svg" alt="Codecov"></a>
   <a href="https://kdumpling.readthedocs.io"><img src="https://readthedocs.org/projects/kdumpling/badge/?version=latest" alt="Documentation"></a>
-  <a href="https://badge.fury.io/py/kdumpling"><img src="https://badge.fury.io/py/kdumpling.svg" alt="PyPI version"></a>
+  <a href="https://pypi.org/project/kdumpling/"><img src="https://img.shields.io/pypi/v/kdumpling.svg" alt="PyPI version"></a>
   <a href="https://pypi.org/project/kdumpling/"><img src="https://img.shields.io/pypi/pyversions/kdumpling.svg" alt="Python versions"></a>
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
 </p>
