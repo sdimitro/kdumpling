@@ -42,5 +42,5 @@ cd pykdumpfile
 pip install .
 
 # Verify installation
-python -c "import kdumpfile; print(f'kdumpfile version: {kdumpfile.__version__}')"
-echo "kdumpfile module installed successfully"
+python -c "import kdumpfile; print('kdumpfile module imported successfully')"
+echo "libkdumpfile and pykdumpfile installed successfully"
