@@ -188,6 +188,48 @@ data = io.BytesIO(b'\xff' * 4096)
 builder.add_memory_segment(0x3000, data)
 ```
 
+## Virtual Address Support
+
+Memory segments can have both physical and virtual addresses. This is useful when
+creating vmcores from tools that capture memory by virtual address (like debuggers
+or tracing tools), allowing drgn to read memory by virtual address directly.
+
+```python
+from kdumpling import KdumpBuilder
+
+builder = KdumpBuilder(arch='x86_64')
+builder.set_vmcoreinfo("OSRELEASE=5.14.0\n")
+
+# Segment with explicit virtual address (kernel direct mapping)
+builder.add_memory_segment(
+    phys_addr=0x100000,
+    data=memory_data,
+    virt_addr=0xffff888000100000
+)
+
+# Segment without virt_addr (defaults to phys_addr)
+builder.add_memory_segment(phys_addr=0x200000, data=other_data)
+
+builder.write("with_vaddr.vmcore")
+```
+
+When loaded with drgn, memory can be read by virtual address:
+
+```python
+import drgn
+
+prog = drgn.Program()
+prog.set_core_dump("with_vaddr.vmcore")
+
+# Read using the virtual address
+data = prog.read(0xffff888000100000, 4096)
+```
+
+This is particularly useful for:
+- **Debugger integrations**: Tools like SDB that record memory by virtual address
+- **Kernel memory captures**: Preserving the kernel's view of memory layout
+- **Replay scenarios**: Re-creating the exact virtual address space for analysis
+
 ## Validating with drgn
 
 You can verify the generated vmcore using [drgn](https://github.com/osandov/drgn):
