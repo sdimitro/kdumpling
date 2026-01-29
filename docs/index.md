@@ -8,10 +8,6 @@
 
 A Python library for creating Linux kdump crash dump files.
 
-```{warning}
-This library is currently a work in progress. The API may change in future releases.
-```
-
 ## Overview
 
 **kdumpling** allows you to synthesize valid ELF64 vmcore files from raw memory data and vmcoreinfo values. This is useful for:
