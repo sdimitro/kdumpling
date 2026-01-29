@@ -5,16 +5,16 @@ on:
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
       - 'v[0-9]+.[0-9]+.[0-9]+-*'  # Allow pre-release tags like v0.2.0-beta1
-  workflow_call:
+  workflow_dispatch:
     inputs:
-      version:
-        description: 'Version tag to release (e.g., v0.2.0)'
+      tag:
+        description: 'Tag to release (e.g., v0.2.0)'
         required: true
         type: string
 
 env:
-  # Use input version for workflow_call, or ref_name for tag push
-  RELEASE_VERSION: ${{ inputs.version || github.ref_name }}
+  # Use input tag for workflow_dispatch, or ref_name for tag push
+  RELEASE_VERSION: ${{ inputs.tag || github.ref_name }}
 
 jobs:
   build:
@@ -24,7 +24,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.version || github.ref_name }}
+          ref: ${{ inputs.tag || github.ref_name }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -51,7 +51,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.version || github.ref_name }}
+          ref: ${{ inputs.tag || github.ref_name }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -103,7 +103,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.version || github.ref_name }}
+          ref: ${{ inputs.tag || github.ref_name }}
 
       - name: Download distribution artifacts
         uses: actions/download-artifact@v4
