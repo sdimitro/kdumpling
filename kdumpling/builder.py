@@ -115,7 +115,7 @@ class DumpStats:
     total_memory_size: int
     vmcoreinfo_size: int
     estimated_file_size: int
-    memory_segments: list[tuple[int, int]]  # List of (phys_addr, size) tuples
+    memory_segments: list[tuple[int, int, int]]  # List of (phys_addr, virt_addr, size)
 
     @property
     def total_memory_size_human(self) -> str:
@@ -140,17 +140,31 @@ class DumpStats:
         ]
         if self.memory_segments:
             lines.append("  Segments:")
-            for phys_addr, size in self.memory_segments:
-                lines.append(f"    0x{phys_addr:016x}: {_format_size(size)}")
+            for phys_addr, virt_addr, size in self.memory_segments:
+                if phys_addr == virt_addr:
+                    lines.append(f"    0x{phys_addr:016x}: {_format_size(size)}")
+                else:
+                    lines.append(
+                        f"    phys=0x{phys_addr:016x} virt=0x{virt_addr:016x}: "
+                        f"{_format_size(size)}"
+                    )
         return "\n".join(lines)
 
 
 @dataclass
 class MemorySegment:
-    """Represents a memory segment to be included in the dump."""
+    """Represents a memory segment to be included in the dump.
+
+    Attributes:
+        phys_addr: Physical memory address where this segment resides
+        data: The memory data (bytes, file path, or file-like object)
+        virt_addr: Virtual memory address (optional, defaults to phys_addr if None)
+        size: Size of the segment in bytes (computed automatically)
+    """
 
     phys_addr: int
     data: bytes | str | BinaryIO
+    virt_addr: int | None = None
     size: int = 0
 
     def __post_init__(self) -> None:
@@ -165,6 +179,11 @@ class MemorySegment:
             self.data.seek(0, 2)  # Seek to end
             self.size = self.data.tell()
             self.data.seek(current_pos)  # Restore position
+
+    @property
+    def effective_virt_addr(self) -> int:
+        """Return the virtual address to use (virt_addr if set, otherwise phys_addr)."""
+        return self.virt_addr if self.virt_addr is not None else self.phys_addr
 
     def get_data(self) -> bytes:
         """Read and return the segment data as bytes."""
@@ -268,7 +287,10 @@ class KdumpBuilder:
         return self
 
     def add_memory_segment(
-        self, phys_addr: int, data: bytes | str | BinaryIO
+        self,
+        phys_addr: int,
+        data: bytes | str | BinaryIO,
+        virt_addr: int | None = None,
     ) -> KdumpBuilder:
         """
         Add a memory segment to the dump.
@@ -279,11 +301,25 @@ class KdumpBuilder:
                   - bytes: Raw memory content
                   - str: Path to a file containing the data
                   - BinaryIO: File-like object to read from
+            virt_addr: Optional virtual address for this segment. If not specified,
+                       defaults to the physical address. This is useful for tools
+                       like drgn that need to read memory by virtual address.
 
         Returns:
             self for method chaining
+
+        Example:
+            # Physical address only (virt_addr defaults to phys_addr)
+            builder.add_memory_segment(phys_addr=0x100000, data=memory_bytes)
+
+            # With explicit virtual address (for kernel memory mappings)
+            builder.add_memory_segment(
+                phys_addr=0x100000,
+                data=memory_bytes,
+                virt_addr=0xffff888000100000
+            )
         """
-        segment = MemorySegment(phys_addr=phys_addr, data=data)
+        segment = MemorySegment(phys_addr=phys_addr, data=data, virt_addr=virt_addr)
         self._segments.append(segment)
         return self
 
@@ -503,8 +539,10 @@ class KdumpBuilder:
             + total_memory  # Memory data
         )
 
-        # Build segment list
-        segment_list = [(seg.phys_addr, seg.size) for seg in self._segments]
+        # Build segment list with (phys_addr, virt_addr, size)
+        segment_list = [
+            (seg.phys_addr, seg.effective_virt_addr, seg.size) for seg in self._segments
+        ]
 
         return DumpStats(
             architecture=self.arch,
@@ -647,7 +685,7 @@ class KdumpBuilder:
                 p_type=PhdrType.PT_LOAD,
                 p_flags=PhdrFlags.PF_R | PhdrFlags.PF_W,
                 p_offset=current_offset,
-                p_vaddr=0,  # Not used for physical memory dumps
+                p_vaddr=segment.effective_virt_addr,
                 p_paddr=segment.phys_addr,
                 p_filesz=segment.size,
                 p_memsz=segment.size,
