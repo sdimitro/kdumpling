@@ -76,6 +76,93 @@ Add CPU register state for a processor.
 
 **Returns:** `self` for method chaining
 
+#### add_custom_note
+
+```python
+def add_custom_note(
+    self,
+    name: bytes | str,
+    note_type: int,
+    data: bytes | str
+) -> KdumpBuilder
+```
+
+Add a custom ELF note to the vmcore.
+
+Custom notes are stored in the PT_NOTE segment alongside standard notes like VMCOREINFO and NT_PRSTATUS. Tools that don't recognize the note type will safely ignore it.
+
+**Parameters:**
+- `name`: Vendor/namespace identifier (e.g., `b"KDUMPLING"` or `"MYAPP"`). Using a unique name prevents conflicts with other tools.
+- `note_type`: Numeric type identifier. See `CustomNoteType` for predefined values, or use any integer.
+- `data`: The note data. Can be bytes or a string (will be UTF-8 encoded).
+
+**Returns:** `self` for method chaining
+
+**Example:**
+```python
+builder.add_custom_note(
+    name=b"KDUMPLING",
+    note_type=CustomNoteType.METADATA,
+    data=b"sha256=abc123..."
+)
+```
+
+#### add_metadata
+
+```python
+def add_metadata(
+    self,
+    data: dict[str, str] | bytes | str,
+    vendor: bytes | str = b"KDUMPLING"
+) -> KdumpBuilder
+```
+
+Add metadata to the vmcore. This is a convenience method for adding key-value metadata using the METADATA note type.
+
+**Parameters:**
+- `data`: Metadata to add. Can be:
+  - `dict`: Key-value pairs (converted to `"key=value\n"` format)
+  - `bytes`/`str`: Raw metadata content
+- `vendor`: Vendor name for the note (default: `"KDUMPLING"`)
+
+**Returns:** `self` for method chaining
+
+**Example:**
+```python
+builder.add_metadata({
+    "sha256": "abc123...",
+    "created_at": "2024-01-28T10:30:00Z",
+    "source": "memory_forensics_tool"
+})
+```
+
+#### add_annotations
+
+```python
+def add_annotations(
+    self,
+    annotations: dict[str, str],
+    vendor: bytes | str = b"KDUMPLING"
+) -> KdumpBuilder
+```
+
+Add custom annotations to the vmcore. Annotations are free-form key-value pairs for attaching contextual information to the dump.
+
+**Parameters:**
+- `annotations`: Dictionary of annotation key-value pairs
+- `vendor`: Vendor name for the note (default: `"KDUMPLING"`)
+
+**Returns:** `self` for method chaining
+
+**Example:**
+```python
+builder.add_annotations({
+    "hostname": "prod-server-01",
+    "kernel_panic_reason": "out of memory",
+    "captured_by": "crash_collector v2.1"
+})
+```
+
 #### write
 
 ```python
@@ -186,6 +273,57 @@ from kdumpling import CompressionType
 | `CompressionType.ZSTD` | Zstandard compression (requires `zstandard` package) |
 
 **Note:** If an optional compression library is not installed, the writer will fall back to storing pages uncompressed.
+
+---
+
+## CustomNote
+
+A custom ELF note to be included in the vmcore.
+
+```python
+from kdumpling import CustomNote
+```
+
+Custom notes allow users to embed additional metadata in their vmcore files, such as hashes, timestamps, annotations, or any other application-specific data.
+
+### Attributes
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `name` | `bytes` | Vendor/namespace identifier (e.g., `b"KDUMPLING"`) |
+| `note_type` | `int` | Note type (see `CustomNoteType` for predefined values) |
+| `data` | `bytes` | Note descriptor data |
+
+### Example
+
+```python
+from kdumpling import CustomNote, CustomNoteType
+
+note = CustomNote(
+    name=b"KDUMPLING",
+    note_type=CustomNoteType.METADATA,
+    data=b"sha256=abc123..."
+)
+```
+
+---
+
+## CustomNoteType
+
+Predefined custom note types for kdumpling metadata.
+
+```python
+from kdumpling import CustomNoteType
+```
+
+| Value | Description |
+|-------|-------------|
+| `CustomNoteType.METADATA` | Hash/signature information (value: 1) |
+| `CustomNoteType.ANNOTATIONS` | Custom key-value annotations (value: 2) |
+| `CustomNoteType.FILE_INFO` | File description information (value: 3) |
+| `CustomNoteType.USER_DEFINED` | Start of user-defined range (value: 256) |
+
+Users can also use any integer value for custom types beyond the predefined ones.
 
 ---
 

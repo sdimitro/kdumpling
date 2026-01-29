@@ -60,4 +60,5 @@ pip install kdumpling
 
 quickstart
 api
+api-reference
 ```
