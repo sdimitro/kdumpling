@@ -99,6 +99,61 @@ Dump Statistics:
     0x0000000000100000: 4.0 MB
 ```
 
+## Compressed Output
+
+kdumpling supports the kdump compressed format, which is compatible with makedumpfile and tools like crash, libkdumpfile, and drgn. This format provides per-page compression and can significantly reduce file sizes.
+
+### Basic Compressed Output
+
+```python
+from kdumpling import KdumpBuilder, OutputFormat, CompressionType
+
+builder = KdumpBuilder(arch='x86_64')
+builder.set_vmcoreinfo("OSRELEASE=5.14.0\nPAGESIZE=4096\n")
+builder.add_memory_segment(0x100000, b'\x00' * 4096 * 100)  # 400KB
+
+# Write in kdump compressed format with zlib compression
+builder.write(
+    "compressed.vmcore",
+    format=OutputFormat.KDUMP_COMPRESSED,
+    compression=CompressionType.ZLIB
+)
+```
+
+### Compression Options
+
+```python
+from kdumpling import KdumpBuilder, OutputFormat, CompressionType
+
+builder = KdumpBuilder(arch='x86_64')
+builder.set_vmcoreinfo("OSRELEASE=5.14.0\n")
+builder.add_memory_segment(0x100000, memory_data)
+
+# No compression (still filters zero pages)
+builder.write("dump.vmcore", format=OutputFormat.KDUMP_COMPRESSED,
+              compression=CompressionType.NONE)
+
+# Zlib compression (default, always available)
+builder.write("dump.vmcore", format=OutputFormat.KDUMP_COMPRESSED,
+              compression=CompressionType.ZLIB, compression_level=9)
+
+# Zstandard compression (requires 'zstandard' package)
+builder.write("dump.vmcore", format=OutputFormat.KDUMP_COMPRESSED,
+              compression=CompressionType.ZSTD)
+```
+
+### Available Compression Types
+
+| Type | Description | Requirement |
+|------|-------------|-------------|
+| `CompressionType.NONE` | No compression | None |
+| `CompressionType.ZLIB` | zlib/gzip (default) | None (built-in) |
+| `CompressionType.LZO` | LZO compression | `python-lzo` |
+| `CompressionType.SNAPPY` | Snappy compression | `python-snappy` |
+| `CompressionType.ZSTD` | Zstandard compression | `zstandard` |
+
+The compressed format automatically excludes zero-filled pages, reducing output size even without compression.
+
 ## Supported Architectures
 
 kdumpling supports the following architectures:
