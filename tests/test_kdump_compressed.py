@@ -68,8 +68,8 @@ class TestKdumpCompressedFormat:
             assert 1 <= header_version <= 6, f"Invalid header version: {header_version}"
 
             # block_size should be 4096
-            # Offset: 8 (sig) + 4 (version) + 390 (utsname) + 8 (timestamp) + 4 (status)
-            block_size_offset = 8 + 4 + 390 + 8 + 4
+            # Offset: 8 (sig) + 4 (version) + 390 (utsname) + 6 (pad) + 16 (timestamp) + 4 (status)
+            block_size_offset = 8 + 4 + 390 + 6 + 16 + 4
             block_size = struct.unpack(
                 "<i", disk_dump_header[block_size_offset : block_size_offset + 4]
             )[0]
@@ -271,19 +271,8 @@ def open_kdumpfile(path: str) -> "kdumpfile.Context":
 
 
 @pytest.mark.skipif(not KDUMPFILE_AVAILABLE, reason="libkdumpfile not installed")
-@pytest.mark.xfail(
-    reason="kdump compressed format structure needs alignment with libkdumpfile expectations"
-)
 class TestKdumpCompressedLibkdumpfileIntegration:
-    """Integration tests with libkdumpfile for compressed format.
-
-    Note: These tests are currently marked xfail because the kdump compressed
-    format sub_header structure may have different field sizes than what
-    libkdumpfile expects. The format is based on makedumpfile's format which
-    uses platform-dependent field sizes (unsigned long = 4 bytes on 32-bit,
-    8 bytes on 64-bit). Further investigation is needed to determine the
-    exact structure libkdumpfile expects.
-    """
+    """Integration tests with libkdumpfile for compressed format."""
 
     def test_libkdumpfile_can_open_compressed(self, vmcore_output_path: str) -> None:
         """Test that libkdumpfile can open our compressed dumps."""

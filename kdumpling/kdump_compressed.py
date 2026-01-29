@@ -184,12 +184,16 @@ class DiskDumpHeader:
             data[offset : offset + 65] = field_bytes.ljust(65, b"\x00")[:65]
             offset += 65
 
-        # timestamp (2 * 4 bytes = 8 bytes)
-        # The diskdump format uses 32-bit timestamp values for portability
+        # _pad1[6] - 6 bytes of padding for 64-bit alignment
+        # (libkdumpfile disk_dump_header_64 requires this)
+        offset += 6
+
+        # timestamp (2 * 8 bytes = 16 bytes for 64-bit timeval)
+        # libkdumpfile's disk_dump_header_64 uses struct timeval_64
         struct.pack_into(
-            f"{fmt_prefix}ii", data, offset, self.timestamp_sec, self.timestamp_usec
+            f"{fmt_prefix}qq", data, offset, self.timestamp_sec, self.timestamp_usec
         )
-        offset += 8
+        offset += 16
 
         # status (4 bytes)
         struct.pack_into(f"{fmt_prefix}I", data, offset, self.status)
