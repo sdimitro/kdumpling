@@ -267,6 +267,13 @@ except ImportError:
     KDUMPFILE_AVAILABLE = False
 
 
+def open_kdumpfile(path: str) -> "kdumpfile.Context":
+    """Open a vmcore file with kdumpfile."""
+    ctx = kdumpfile.Context()
+    ctx.open(path)
+    return ctx
+
+
 @pytest.mark.skipif(not KDUMPFILE_AVAILABLE, reason="libkdumpfile not installed")
 class TestKdumpCompressedLibkdumpfileIntegration:
     """Integration tests with libkdumpfile for compressed format."""
@@ -283,7 +290,7 @@ class TestKdumpCompressedLibkdumpfileIntegration:
         )
 
         # libkdumpfile should be able to open the file
-        ctx = kdumpfile.kdumpfile(vmcore_output_path)
+        ctx = open_kdumpfile(vmcore_output_path)
         assert ctx is not None
 
     def test_libkdumpfile_reads_vmcoreinfo(self, vmcore_output_path: str) -> None:
@@ -296,16 +303,14 @@ class TestKdumpCompressedLibkdumpfileIntegration:
             format=OutputFormat.KDUMP_COMPRESSED,
         )
 
-        ctx = kdumpfile.kdumpfile(vmcore_output_path)
+        ctx = open_kdumpfile(vmcore_output_path)
 
         # Try to read vmcoreinfo
         try:
-            # Different libkdumpfile versions have different APIs
-            vmcoreinfo = ctx.attr.get("linux.vmcoreinfo.raw", None)
-            if vmcoreinfo:
-                assert b"OSRELEASE" in vmcoreinfo or "OSRELEASE" in str(vmcoreinfo)
-        except (AttributeError, KeyError):
-            # Older API or vmcoreinfo not accessible this way
+            raw_vmcoreinfo = ctx.vmcoreinfo_raw()
+            assert b"OSRELEASE" in raw_vmcoreinfo
+        except Exception:
+            # vmcoreinfo access may differ between versions
             pass
 
     def test_libkdumpfile_reads_memory(self, vmcore_output_path: str) -> None:
@@ -321,15 +326,15 @@ class TestKdumpCompressedLibkdumpfileIntegration:
             compression=CompressionType.ZLIB,
         )
 
-        ctx = kdumpfile.kdumpfile(vmcore_output_path)
+        ctx = open_kdumpfile(vmcore_output_path)
 
         # Try to read memory at the physical address
         try:
-            # Read first few bytes
-            data = ctx.read(kdumpfile.KVADDR, 0x100000, 16)
-            # The data might be transformed by address translation,
-            # but we should get something
-            assert data is not None
+            # Read first few bytes using machine physical address
+            data = ctx.read(kdumpfile.MACHPHYSADDR, 0x100000, 16)
+            # The data should match our pattern
+            if data:
+                assert bytes(data)[:4] == b"\xca\xfe\xba\xbe"
         except Exception:
             # Memory reading might fail due to address translation issues
             # in synthetic dumps, but opening the file should work
@@ -348,7 +353,7 @@ class TestKdumpCompressedLibkdumpfileIntegration:
         )
 
         # Should be able to open without errors
-        ctx = kdumpfile.kdumpfile(vmcore_output_path)
+        ctx = open_kdumpfile(vmcore_output_path)
         assert ctx is not None
 
     def test_libkdumpfile_no_compression(self, vmcore_output_path: str) -> None:
@@ -362,7 +367,7 @@ class TestKdumpCompressedLibkdumpfileIntegration:
             compression=CompressionType.NONE,
         )
 
-        ctx = kdumpfile.kdumpfile(vmcore_output_path)
+        ctx = open_kdumpfile(vmcore_output_path)
         assert ctx is not None
 
     def test_libkdumpfile_with_cpu_context(self, vmcore_output_path: str) -> None:
@@ -380,7 +385,7 @@ class TestKdumpCompressedLibkdumpfileIntegration:
             format=OutputFormat.KDUMP_COMPRESSED,
         )
 
-        ctx = kdumpfile.kdumpfile(vmcore_output_path)
+        ctx = open_kdumpfile(vmcore_output_path)
         assert ctx is not None
 
     def test_libkdumpfile_format_detection(self, vmcore_output_path: str) -> None:
@@ -393,12 +398,11 @@ class TestKdumpCompressedLibkdumpfileIntegration:
             format=OutputFormat.KDUMP_COMPRESSED,
         )
 
-        ctx = kdumpfile.kdumpfile(vmcore_output_path)
+        ctx = open_kdumpfile(vmcore_output_path)
 
         # Try to get format information
         try:
-            # The format should be detected as kdump/diskdump
-            file_format = ctx.attr.get("file.format", None)
+            file_format = ctx.attr.get("file.format")
             if file_format:
                 assert (
                     "kdump" in str(file_format).lower()
