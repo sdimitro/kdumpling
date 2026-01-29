@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kdumpling"
-version = "0.2.0"
+version = "0.2.1"
 description = "A Python library for creating Linux kdump crash dump files"
 readme = "README.md"
 license = {text = "MIT"}
