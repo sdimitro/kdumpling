@@ -9,15 +9,15 @@ The format provides:
 - Page filtering (exclude zero pages, cache, user pages, etc.)
 - Efficient storage with bitmap-based indexing
 
-File structure:
+File structure (per makedumpfile specification):
     Offset 0x0000: disk_dump_header (with "KDUMP   " signature)
     Offset 0x1000: kdump_sub_header
-    Offset 0x2000: vmcoreinfo data
-    Offset varies: notes data
-    Offset varies: 1st bitmap (valid memory pages)
+    Offset 0x2000: 1st bitmap (valid memory pages)
     Offset varies: 2nd bitmap (dumped pages)
     Offset varies: Page descriptors
     Offset varies: Compressed page data
+    Offset varies: vmcoreinfo (offset stored in sub_header)
+    Offset varies: notes data (offset stored in sub_header)
 """
 
 from __future__ import annotations
@@ -72,10 +72,10 @@ class DumpHeaderVersion(IntEnum):
 
     VERSION_1 = 1  # Original version
     VERSION_2 = 2  # Added split support
-    VERSION_3 = 3  # Added exclude_vmemmap_enabled
-    VERSION_4 = 4  # Added max_mapnr_64
-    VERSION_5 = 5  # Added start_pfn/end_pfn in bitmap
-    VERSION_6 = 6  # Current version
+    VERSION_3 = 3  # Added offset_vmcoreinfo, size_vmcoreinfo
+    VERSION_4 = 4  # Added offset_note, size_note
+    VERSION_5 = 5  # Added offset_eraseinfo, size_eraseinfo
+    VERSION_6 = 6  # Added start_pfn_64, end_pfn_64, max_mapnr_64
 
 
 class CompressionMethod(IntEnum):
