@@ -79,13 +79,22 @@ Add CPU register state for a processor.
 #### write
 
 ```python
-def write(self, output_path: str) -> None
+def write(
+    self,
+    output_path: str,
+    format: OutputFormat = OutputFormat.ELF,
+    compression: CompressionType = CompressionType.ZLIB,
+    compression_level: int = 6
+) -> None
 ```
 
 Write the vmcore file to disk.
 
 **Parameters:**
 - `output_path`: Path where the vmcore file will be written
+- `format`: Output format (`OutputFormat.ELF` or `OutputFormat.KDUMP_COMPRESSED`). Default is ELF.
+- `compression`: Compression type for KDUMP_COMPRESSED format. See `CompressionType`. Default is ZLIB. Ignored for ELF format.
+- `compression_level`: Compression level 1-9. Default is 6. Higher values give better compression but are slower. Ignored for ELF format.
 
 ### Properties
 
@@ -142,6 +151,41 @@ print(builder.stats)
 #   Total Memory: 8.0 KB (8192 bytes)
 #   ...
 ```
+
+---
+
+## OutputFormat
+
+Output format options for vmcore files.
+
+```python
+from kdumpling import OutputFormat
+```
+
+| Value | Description |
+|-------|-------------|
+| `OutputFormat.ELF` | Standard ELF64 vmcore (default). Compatible with all tools. |
+| `OutputFormat.KDUMP_COMPRESSED` | Kdump compressed format (makedumpfile compatible). Provides per-page compression and filtering. |
+
+---
+
+## CompressionType
+
+Compression algorithms for the kdump compressed format.
+
+```python
+from kdumpling import CompressionType
+```
+
+| Value | Description |
+|-------|-------------|
+| `CompressionType.NONE` | No compression (dump level filtering only) |
+| `CompressionType.ZLIB` | zlib/gzip compression (default, always available) |
+| `CompressionType.LZO` | LZO compression (requires `python-lzo` package) |
+| `CompressionType.SNAPPY` | Snappy compression (requires `python-snappy` package) |
+| `CompressionType.ZSTD` | Zstandard compression (requires `zstandard` package) |
+
+**Note:** If an optional compression library is not installed, the writer will fall back to storing pages uncompressed.
 
 ---
 
