@@ -59,21 +59,17 @@ class TestKdumpCompressedFormat:
         )
 
         with open(vmcore_output_path, "rb") as f:
-            # Block 0: Flat header with signature
-            flat_header = f.read(BLOCK_SIZE)
-            assert flat_header[:8] == KDUMP_SIGNATURE
-
-            # Block 1: disk_dump_header
+            # Block 0: disk_dump_header (starts with "KDUMP   " signature)
             disk_dump_header = f.read(BLOCK_SIZE)
-            assert disk_dump_header[:8] == KDUMP_SIGNATURE  # signature field
+            assert disk_dump_header[:8] == KDUMP_SIGNATURE
 
             # header_version should be reasonable (1-6)
             header_version = struct.unpack("<i", disk_dump_header[8:12])[0]
             assert 1 <= header_version <= 6, f"Invalid header version: {header_version}"
 
             # block_size should be 4096
-            # Offset: 8 (sig) + 4 (version) + 390 (utsname) + 2 (pad) + 16 (timestamp) + 4 (status)
-            block_size_offset = 8 + 4 + 390 + 2 + 16 + 4
+            # Offset: 8 (sig) + 4 (version) + 390 (utsname) + 8 (timestamp) + 4 (status)
+            block_size_offset = 8 + 4 + 390 + 8 + 4
             block_size = struct.unpack(
                 "<i", disk_dump_header[block_size_offset : block_size_offset + 4]
             )[0]

@@ -10,10 +10,11 @@ The format provides:
 - Efficient storage with bitmap-based indexing
 
 File structure:
-    Offset 0x0000: Flat header ("KDUMP   " or "MAKEDUMPFILE" signature)
-    Offset 0x1000: disk_dump_header (metadata)
-    Offset 0x2000: kdump_sub_header
-    Offset 0x3000: 1st bitmap (valid memory pages)
+    Offset 0x0000: disk_dump_header (with "KDUMP   " signature)
+    Offset 0x1000: kdump_sub_header
+    Offset 0x2000: vmcoreinfo data
+    Offset varies: notes data
+    Offset varies: 1st bitmap (valid memory pages)
     Offset varies: 2nd bitmap (dumped pages)
     Offset varies: Page descriptors
     Offset varies: Compressed page data
@@ -183,14 +184,12 @@ class DiskDumpHeader:
             data[offset : offset + 65] = field_bytes.ljust(65, b"\x00")[:65]
             offset += 65
 
-        # _pad1 (2 bytes)
-        offset += 2
-
-        # timestamp (2 * 8 bytes for 64-bit timeval on most platforms)
+        # timestamp (2 * 4 bytes = 8 bytes)
+        # The diskdump format uses 32-bit timestamp values for portability
         struct.pack_into(
-            f"{fmt_prefix}qq", data, offset, self.timestamp_sec, self.timestamp_usec
+            f"{fmt_prefix}ii", data, offset, self.timestamp_sec, self.timestamp_usec
         )
-        offset += 16
+        offset += 8
 
         # status (4 bytes)
         struct.pack_into(f"{fmt_prefix}I", data, offset, self.status)
@@ -510,17 +509,16 @@ def write_kdump_compressed(
     bitmap_blocks = (bitmap_bytes + BLOCK_SIZE - 1) // BLOCK_SIZE
 
     # File layout:
-    # Offset 0x0000: flat header (not used in flattened format, but we use KDUMP signature)
-    # Offset 0x1000: disk_dump_header
-    # Offset 0x2000: kdump_sub_header
-    # Offset 0x3000: vmcoreinfo data
+    # Offset 0x0000: disk_dump_header (with "KDUMP   " signature)
+    # Offset 0x1000: kdump_sub_header
+    # Offset 0x2000: vmcoreinfo data
     # Offset varies: notes data
     # Offset varies: 1st bitmap (valid pages)
     # Offset varies: 2nd bitmap (dumped pages)
     # Offset varies: page descriptors
     # Offset varies: page data
 
-    vmcoreinfo_offset = 3 * BLOCK_SIZE
+    vmcoreinfo_offset = 2 * BLOCK_SIZE
     vmcoreinfo_size = len(vmcoreinfo)
     vmcoreinfo_blocks = (vmcoreinfo_size + BLOCK_SIZE - 1) // BLOCK_SIZE
     if vmcoreinfo_blocks == 0:
@@ -679,15 +677,10 @@ def write_kdump_compressed(
 
     # Write the file
     with open(output_path, "wb") as f:
-        # Block 0: Flat header (all zeros, or we can put signature)
-        flat_header = bytearray(BLOCK_SIZE)
-        flat_header[0:8] = KDUMP_SIGNATURE
-        f.write(flat_header)
-
-        # Block 1: disk_dump_header
+        # Block 0: disk_dump_header (contains "KDUMP   " signature at offset 0)
         f.write(disk_header.pack(endianness))
 
-        # Block 2: kdump_sub_header
+        # Block 1: kdump_sub_header
         f.write(sub_header.pack(endianness))
 
         # VMCOREINFO
