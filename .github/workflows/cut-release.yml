@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write  # Required for PyPI trusted publishing
 
 jobs:
   cut-release:
@@ -66,6 +67,11 @@ jobs:
         run: |
           echo "## Release $VERSION created!" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "The tag \`$VERSION\` has been pushed and will trigger the release workflow." >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Check the [Release workflow](/${{ github.repository }}/actions/workflows/release.yml) for progress." >> $GITHUB_STEP_SUMMARY
+          echo "Tag \`$VERSION\` has been pushed. Release workflow will now run." >> $GITHUB_STEP_SUMMARY
+
+  release:
+    name: Release
+    needs: cut-release
+    uses: ./.github/workflows/release.yml
+    with:
+      version: ${{ github.event.inputs.version }}
