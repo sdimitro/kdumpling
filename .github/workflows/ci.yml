@@ -43,11 +43,14 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install mypy
+          pip install mypy pyright
           pip install -e .
 
       - name: Run mypy
         run: mypy kdumpling
+
+      - name: Run pyright
+        run: pyright kdumpling
 
   test:
     name: Test (Python ${{ matrix.python-version }})
